@@ -39,6 +39,7 @@ class BrowserManager:
         self._playwright = None
         self._browser: Browser | None = None
         self._contexts: dict[str, BrowserContext] = {}  # pseudo -> context
+        self._proxy_pseudos: set[str] = set()  # pseudos utilisant un proxy
 
     async def start(self):
         """Lance le navigateur Chromium."""
@@ -71,13 +72,17 @@ class BrowserManager:
 
         if proxy:
             context_kwargs["proxy"] = _parse_proxy(proxy)
+            self._proxy_pseudos.add(pseudo)
             logger.info("[%s] Contexte créé avec proxy: %s", pseudo, _mask_proxy(proxy))
         else:
+            self._proxy_pseudos.discard(pseudo)
             logger.info("[%s] Contexte créé sans proxy (IP locale)", pseudo)
 
         context = await self._browser.new_context(**context_kwargs)
-        context.set_default_timeout(15000)
-        context.set_default_navigation_timeout(15000)
+        # Timeouts plus longs pour les connexions via proxy (latence réseau)
+        timeout = 30000 if proxy else 15000
+        context.set_default_timeout(timeout)
+        context.set_default_navigation_timeout(timeout)
 
         self._contexts[pseudo] = context
         return context
@@ -97,10 +102,11 @@ class BrowserManager:
         page = None
         try:
             page = await self.new_page(pseudo)
+            ip_timeout = 30000 if pseudo in self._proxy_pseudos else 15000
             await page.goto(
                 "https://api.ipify.org",
                 wait_until="domcontentloaded",
-                timeout=15000,
+                timeout=ip_timeout,
             )
             ip_text = (await page.inner_text("body")).strip()
             return ip_text

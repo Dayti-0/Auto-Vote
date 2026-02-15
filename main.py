@@ -186,6 +186,10 @@ async def main():
         proxy = acc.get("proxy")
         is_auto = bool(acc.get("_proxy_auto"))
         voters = build_voters(pseudo, sites_config)
+        # Timeouts plus longs pour les comptes via proxy (latence réseau)
+        if proxy:
+            for v in voters:
+                v.timeout_factor = 2.0
         if voters:
             account_groups.append(AccountVoters(
                 pseudo=pseudo, proxy=proxy, voters=voters, is_auto_proxy=is_auto,

@@ -27,7 +27,7 @@ class ServeurMinecraftVoteVoter(BaseVoter):
             logger.debug("%s Recherche du champ pseudo sur le site externe", self.log_prefix)
             pseudo_input = page.locator("input#pseudo")
             try:
-                await pseudo_input.wait_for(state="visible", timeout=5000)
+                await pseudo_input.wait_for(state="visible", timeout=int(5000 * self.timeout_factor))
                 await pseudo_input.click()
                 await pseudo_input.fill(self.pseudo)
                 logger.debug("%s Pseudo '%s' saisi dans le champ du site de vote", self.log_prefix, self.pseudo)
@@ -42,23 +42,23 @@ class ServeurMinecraftVoteVoter(BaseVoter):
                 "a:has-text('Voter en étant déconnecté'), "
                 "input[value*='Voter en étant déconnecté']"
             ).first
-            await vote_button.wait_for(state="visible", timeout=5000)
+            await vote_button.wait_for(state="visible", timeout=int(5000 * self.timeout_factor))
             await human_delay(0.3, 0.6)
             await vote_button.click()
 
             # 3. Attendre que la page traite le vote (networkidle = plus de requêtes réseau)
             try:
-                await page.wait_for_load_state("networkidle", timeout=15000)
+                await page.wait_for_load_state("networkidle", timeout=int(15000 * self.timeout_factor))
             except Exception:
                 # Fallback : attendre au moins domcontentloaded
-                await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                await page.wait_for_load_state("domcontentloaded", timeout=int(10000 * self.timeout_factor))
 
             # 4. Chercher un message de confirmation sur la page
             try:
                 confirmation = page.locator(
                     "text=/[Vv]ote.*enregistr|[Vv]ote.*comptabilis|[Mm]erci|[Vv]ote.*réussi|[Vv]ote.*pris en compte|[Vv]oté avec succès/"
                 ).first
-                await confirmation.wait_for(state="visible", timeout=5000)
+                await confirmation.wait_for(state="visible", timeout=int(5000 * self.timeout_factor))
                 logger.debug("%s Message de confirmation détecté", self.log_prefix)
             except Exception:
                 logger.debug("%s Pas de message de confirmation détecté, attente supplémentaire", self.log_prefix)

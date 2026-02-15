@@ -25,6 +25,8 @@ class BaseVoter(ABC):
         self.consecutive_failures: int = 0
         self.next_vote_available: datetime | None = None
         self.last_error: str | None = None
+        # Multiplicateur de timeouts (2.0 pour les comptes via proxy)
+        self.timeout_factor: float = 1.0
 
     @property
     def log_prefix(self) -> str:
@@ -48,7 +50,7 @@ class BaseVoter(ABC):
                     "button:has-text('Autoriser'), "
                     "a:has-text('Autoriser')"
                 ).first
-                await cookie_btn.wait_for(state="visible", timeout=2000)
+                await cookie_btn.wait_for(state="visible", timeout=int(2000 * self.timeout_factor))
                 await cookie_btn.click()
                 logger.debug("%s Popup de cookies acceptée", self.log_prefix)
                 await human_delay(0.3, 0.5)
@@ -85,7 +87,7 @@ class BaseVoter(ABC):
             # 5. Trouver le lien de vote correspondant par pattern d'URL
             vote_link = page.locator(f"a[href*='{self.link_pattern}']").first
             try:
-                await vote_link.wait_for(state="visible", timeout=10000)
+                await vote_link.wait_for(state="visible", timeout=int(10000 * self.timeout_factor))
             except Exception:
                 logger.error(
                     "%s Lien de vote introuvable (pattern: %s)",
@@ -106,7 +108,7 @@ class BaseVoter(ABC):
                     enabled_link = page.locator(
                         f"a[href*='{self.link_pattern}']:not(.disabled)"
                     ).first
-                    await enabled_link.wait_for(state="visible", timeout=10000)
+                    await enabled_link.wait_for(state="visible", timeout=int(10000 * self.timeout_factor))
                     vote_link = enabled_link
                     logger.debug("%s Bouton de vote activé après attente", self.log_prefix)
                 except Exception:
@@ -169,7 +171,7 @@ class BaseVoter(ABC):
                     "button:has-text('Fermer'), "
                     "a:has-text('Fermer')"
                 ).first
-                await fermer_btn.wait_for(state="visible", timeout=3000)
+                await fermer_btn.wait_for(state="visible", timeout=int(3000 * self.timeout_factor))
                 await fermer_btn.click()
                 logger.debug("%s Popup de confirmation fermée", self.log_prefix)
             except Exception:
