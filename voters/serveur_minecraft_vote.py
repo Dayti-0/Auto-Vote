@@ -21,22 +21,38 @@ class ServeurMinecraftVoteVoter(BaseVoter):
         )
 
     async def _handle_external_vote(self, page: Page) -> bool:
-        """Clique sur le bouton Voter sur serveur-minecraft-vote.fr."""
+        """Remplit le pseudo et clique sur 'Voter en étant déconnecté' sur serveur-minecraft-vote.fr."""
         try:
-            logger.debug("[%s] Recherche du bouton Voter sur le site externe", self.name)
+            # 1. Remplir le champ pseudo sur la page du site de vote
+            logger.debug("[%s] Recherche du champ pseudo sur le site externe", self.name)
+            pseudo_input = page.locator("input#pseudo")
+            try:
+                await pseudo_input.wait_for(state="visible", timeout=10000)
+                await human_delay(0.5, 1.5)
+                await pseudo_input.click()
+                await pseudo_input.fill("")
+                await pseudo_input.type(self.pseudo, delay=80)
+                logger.debug("[%s] Pseudo '%s' saisi dans le champ du site de vote", self.name, self.pseudo)
+                await human_delay(0.5, 1.0)
+            except Exception:
+                logger.debug("[%s] Champ pseudo non trouvé ou déjà rempli", self.name)
+
+            # 2. Cliquer sur le bouton "Voter en étant déconnecté"
+            logger.debug("[%s] Recherche du bouton 'Voter en étant déconnecté'", self.name)
             vote_button = page.locator(
-                "button:has-text('Voter'), "
-                "a:has-text('Voter'), "
-                "input[value='Voter']"
+                "button:has-text('Voter en étant déconnecté'), "
+                "a:has-text('Voter en étant déconnecté'), "
+                "input[value*='Voter en étant déconnecté']"
             ).first
             await vote_button.wait_for(state="visible", timeout=10000)
             await human_delay(1.0, 2.0)
             await vote_button.click()
 
-            # Attendre confirmation
-            await page.wait_for_load_state("domcontentloaded", timeout=10000)
-            await human_delay(1.0, 2.0)
+            # 3. Attendre confirmation
+            await page.wait_for_load_state("domcontentloaded", timeout=15000)
+            await human_delay(1.5, 3.0)
 
+            logger.debug("[%s] Bouton 'Voter en étant déconnecté' cliqué avec succès", self.name)
             return True
 
         except Exception as e:
