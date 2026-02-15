@@ -6,12 +6,14 @@ import aiohttp
 
 logger = logging.getLogger("auto-voter")
 
-# API ProxyScrape — proxies gratuits (HTTP/SOCKS4/SOCKS5)
+# API ProxyScrape — proxies gratuits français (HTTP/SOCKS4/SOCKS5)
 PROXYSCRAPE_API = (
     "https://api.proxyscrape.com/v4/free-proxy-list/get"
     "?request=display_proxies"
+    "&country=fr"
     "&proxy_format=protocolipport"
     "&format=text"
+    "&timeout=20000"
 )
 
 # URL légère pour tester la connectivité d'un proxy
