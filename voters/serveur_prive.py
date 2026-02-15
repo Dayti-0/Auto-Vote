@@ -11,24 +11,23 @@ logger = logging.getLogger("auto-voter")
 class ServeurPriveVoter(BaseVoter):
     """Voter pour serveur-prive.net — le vote est comptabilisé au chargement de la page."""
 
-    def __init__(self, interval_minutes: int = 90, random_delay_max: int = 5):
+    def __init__(self, pseudo: str, interval_minutes: int = 90, random_delay_max: int = 5):
         super().__init__(
             name="serveur-prive.net",
-            url="https://serveur-prive.net/minecraft/survivalworld/vote",
+            pseudo=pseudo,
+            link_pattern="serveur-prive.net",
             interval_minutes=interval_minutes,
             random_delay_max=random_delay_max,
         )
 
-    async def vote(self, page: Page) -> bool:
-        """Navigue vers la page — le vote est comptabilisé au chargement."""
+    async def _handle_external_vote(self, page: Page) -> bool:
+        """Le vote est comptabilisé au chargement — on attend juste le chargement."""
         try:
-            logger.debug("[%s] Navigation vers %s", self.name, self.url)
-            await page.goto(self.url, wait_until="networkidle")
+            await page.wait_for_load_state("networkidle", timeout=15000)
             await human_delay(2.0, 4.0)
 
-            self.record_success()
             return True
 
         except Exception as e:
-            self.record_failure(str(e))
+            logger.error("[%s] Erreur sur le site externe: %s", self.name, e)
             return False
