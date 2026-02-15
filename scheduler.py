@@ -8,6 +8,23 @@ from voters.base import BaseVoter
 
 logger = logging.getLogger("auto-voter")
 
+# Mots-clés dans les messages d'erreur qui indiquent un problème de proxy
+_PROXY_ERROR_KEYWORDS = [
+    "ERR_CONNECTION_RESET",
+    "ERR_TUNNEL_CONNECTION_FAILED",
+    "ERR_PROXY_CONNECTION_FAILED",
+    "ERR_CONNECTION_REFUSED",
+    "ERR_CONNECTION_TIMED_OUT",
+    "ERR_SOCKS_CONNECTION_FAILED",
+    "ERR_PROXY_AUTH",
+]
+
+
+def _is_proxy_error(error: str) -> bool:
+    """Détecte si une erreur est liée au proxy (connexion réseau)."""
+    error_upper = error.upper()
+    return any(kw in error_upper for kw in _PROXY_ERROR_KEYWORDS)
+
 
 class AccountVoters:
     """Regroupe les voters d'un même compte avec leur proxy."""
@@ -78,10 +95,6 @@ class VoteScheduler:
         """Exécute un vote sur un site, avec gestion des erreurs navigateur."""
         lock = self._vote_locks[account.pseudo]
         async with lock:
-            # Pour les comptes auto-proxy : nouveau proxy frais avant chaque vote
-            if account.is_auto_proxy:
-                await self._rotate_proxy(account)
-
             page = None
             try:
                 if not self.browser.is_running:
@@ -93,8 +106,37 @@ class VoteScheduler:
                 page = await self.browser.new_page(account.pseudo)
                 success = await voter.vote(page)
 
-                if not success:
+                if success:
+                    pass  # Succès déjà loggé par le voter
+                elif voter.next_vote_available:
+                    # Cooldown détecté — comportement normal, pas d'erreur
+                    pass
+                else:
                     logger.warning("[%s][%s] Vote échoué", account.pseudo, voter.name)
+                    # Si auto-proxy et erreur de connexion proxy : rotation + retry
+                    if (account.is_auto_proxy and voter.last_error
+                            and _is_proxy_error(voter.last_error)):
+                        logger.info(
+                            "[%s][%s] Erreur proxy détectée, rotation et retry...",
+                            account.pseudo, voter.name,
+                        )
+                        if page and not page.is_closed():
+                            await page.close()
+                            page = None
+                        await self._rotate_proxy(account)
+                        try:
+                            page = await self.browser.new_page(account.pseudo)
+                            success = await voter.vote(page)
+                            if not success and not voter.next_vote_available:
+                                logger.warning(
+                                    "[%s][%s] Vote échoué après rotation proxy",
+                                    account.pseudo, voter.name,
+                                )
+                        except Exception as retry_err:
+                            logger.error(
+                                "[%s][%s] Échec retry après rotation: %s",
+                                account.pseudo, voter.name, retry_err,
+                            )
 
             except Exception as e:
                 logger.error("[%s][%s] Erreur inattendue: %s", account.pseudo, voter.name, e)
