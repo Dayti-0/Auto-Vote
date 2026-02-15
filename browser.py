@@ -61,8 +61,8 @@ class BrowserManager:
             viewport={"width": 1920, "height": 1080},
             locale="fr-FR",
         )
-        self._context.set_default_timeout(30000)  # 30 secondes
-        self._context.set_default_navigation_timeout(30000)
+        self._context.set_default_timeout(15000)  # 15 secondes
+        self._context.set_default_navigation_timeout(15000)
         logger.debug("Navigateur lancé avec succès")
 
     async def new_page(self) -> Page:
