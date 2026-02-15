@@ -19,7 +19,6 @@ _PROXY_ERROR_KEYWORDS = [
     "ERR_PROXY_AUTH",
     "ERR_EMPTY_RESPONSE",
     "TIMEOUT",  # Playwright timeouts (ex: "Timeout 30000ms exceeded")
-    "CLOUDFLARE",  # Challenge Cloudflare non résolu (IP proxy bloquée)
 ]
 
 # Nombre max de rotations proxy avant d'abandonner
