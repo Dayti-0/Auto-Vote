@@ -46,9 +46,27 @@ class ServeurMinecraftVoteVoter(BaseVoter):
             await human_delay(0.3, 0.6)
             await vote_button.click()
 
-            # 3. Attendre confirmation
-            await page.wait_for_load_state("domcontentloaded", timeout=10000)
-            await human_delay(0.3, 0.6)
+            # 3. Attendre que la page traite le vote (networkidle = plus de requêtes réseau)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                # Fallback : attendre au moins domcontentloaded
+                await page.wait_for_load_state("domcontentloaded", timeout=10000)
+
+            # 4. Chercher un message de confirmation sur la page
+            try:
+                confirmation = page.locator(
+                    "text=/[Vv]ote.*enregistr|[Vv]ote.*comptabilis|[Mm]erci|[Vv]ote.*réussi|[Vv]ote.*pris en compte|[Vv]oté avec succès/"
+                ).first
+                await confirmation.wait_for(state="visible", timeout=5000)
+                logger.debug("%s Message de confirmation détecté", self.log_prefix)
+            except Exception:
+                logger.debug("%s Pas de message de confirmation détecté, attente supplémentaire", self.log_prefix)
+                # Attendre un peu plus au cas où le vote est en cours de traitement
+                await human_delay(2.0, 4.0)
+
+            # 5. Délai final pour s'assurer que le vote est bien enregistré côté serveur
+            await human_delay(2.0, 4.0)
 
             logger.debug("%s Bouton 'Voter en étant déconnecté' cliqué avec succès", self.log_prefix)
             return True
