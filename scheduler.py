@@ -18,7 +18,11 @@ _PROXY_ERROR_KEYWORDS = [
     "ERR_SOCKS_CONNECTION_FAILED",
     "ERR_PROXY_AUTH",
     "ERR_EMPTY_RESPONSE",
+    "TIMEOUT",  # Playwright timeouts (ex: "Timeout 30000ms exceeded")
 ]
+
+# Nombre max de rotations proxy avant d'abandonner
+MAX_PROXY_RETRIES = 3
 
 
 def _is_proxy_error(error: str) -> bool:
@@ -61,9 +65,9 @@ class VoteScheduler:
             len(self.account_groups), total,
         )
         for ag in self.account_groups:
-            for voter in ag.voters:
+            for i, voter in enumerate(ag.voters):
                 self._tasks.append(
-                    asyncio.create_task(self._vote_loop(ag, voter))
+                    asyncio.create_task(self._vote_loop(ag, voter, stagger_index=i))
                 )
         await asyncio.gather(*self._tasks, return_exceptions=True)
 
@@ -75,12 +79,23 @@ class VoteScheduler:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
 
-    async def _vote_loop(self, account: AccountVoters, voter: BaseVoter):
+    async def _vote_loop(self, account: AccountVoters, voter: BaseVoter,
+                         stagger_index: int = 0):
         """Boucle de vote pour un site d'un compte : vote immédiat puis intervalles."""
         # Vérifier l'IP du proxy avant le premier vote (une seule fois par compte)
         if account.proxy and account.pseudo not in self._ip_verified:
             self._ip_verified.add(account.pseudo)
             await self._verify_proxy_ip(account)
+
+        # Décaler les votes initiaux des comptes proxy pour éviter de surcharger
+        # survivalworld.fr avec des connexions rapides via le même proxy
+        if account.proxy and stagger_index > 0:
+            delay = stagger_index * random.randint(45, 90)
+            logger.info(
+                "[%s][%s] Attente de %ds avant le premier vote (décalage anti-rate-limit)",
+                account.pseudo, voter.name, delay,
+            )
+            await asyncio.sleep(delay)
 
         # Vote immédiat au démarrage
         await self._execute_vote(account, voter)
@@ -121,29 +136,37 @@ class VoteScheduler:
                     pass
                 else:
                     logger.warning("[%s][%s] Vote échoué", account.pseudo, voter.name)
-                    # Si auto-proxy et erreur de connexion proxy : rotation + retry
+                    # Si auto-proxy et erreur de connexion proxy : rotation + retry (jusqu'à MAX_PROXY_RETRIES)
                     if (account.is_auto_proxy and voter.last_error
                             and _is_proxy_error(voter.last_error)):
-                        logger.info(
-                            "[%s][%s] Erreur proxy détectée, rotation et retry...",
-                            account.pseudo, voter.name,
-                        )
-                        if page and not page.is_closed():
-                            await page.close()
-                            page = None
-                        await self._rotate_proxy(account)
-                        try:
-                            page = await self.browser.new_page(account.pseudo)
-                            success = await voter.vote(page)
-                            if not success and not voter.next_vote_available:
-                                logger.warning(
-                                    "[%s][%s] Vote échoué après rotation proxy",
-                                    account.pseudo, voter.name,
+                        for retry_num in range(1, MAX_PROXY_RETRIES + 1):
+                            logger.info(
+                                "[%s][%s] Erreur proxy détectée, rotation et retry %d/%d...",
+                                account.pseudo, voter.name, retry_num, MAX_PROXY_RETRIES,
+                            )
+                            if page and not page.is_closed():
+                                await page.close()
+                                page = None
+                            await self._rotate_proxy(account)
+                            # Petit délai avant retry pour laisser le nouveau proxy s'établir
+                            await asyncio.sleep(random.uniform(5, 15))
+                            try:
+                                page = await self.browser.new_page(account.pseudo)
+                                success = await voter.vote(page)
+                                if success or voter.next_vote_available:
+                                    break  # Vote réussi ou cooldown détecté
+                                # Si l'erreur n'est plus liée au proxy, arrêter les rotations
+                                if not voter.last_error or not _is_proxy_error(voter.last_error):
+                                    break
+                            except Exception as retry_err:
+                                logger.error(
+                                    "[%s][%s] Échec retry %d: %s",
+                                    account.pseudo, voter.name, retry_num, retry_err,
                                 )
-                        except Exception as retry_err:
-                            logger.error(
-                                "[%s][%s] Échec retry après rotation: %s",
-                                account.pseudo, voter.name, retry_err,
+                        if not success and not voter.next_vote_available:
+                            logger.warning(
+                                "[%s][%s] Vote échoué après %d rotation(s) proxy",
+                                account.pseudo, voter.name, MAX_PROXY_RETRIES,
                             )
 
             except Exception as e:
