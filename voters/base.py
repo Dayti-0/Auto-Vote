@@ -31,6 +31,20 @@ class BaseVoter(ABC):
             await page.goto(SURVIVALWORLD_VOTE_URL, wait_until="domcontentloaded")
             await human_delay(2.0, 4.0)
 
+            # 1b. Gérer la popup de cookies si elle apparaît
+            try:
+                cookie_btn = page.locator(
+                    "button:has-text('Autoriser'), "
+                    "a:has-text('Autoriser')"
+                ).first
+                await cookie_btn.wait_for(state="visible", timeout=3000)
+                await human_delay(0.5, 1.0)
+                await cookie_btn.click()
+                logger.debug("[%s] Popup de cookies acceptée", self.name)
+                await human_delay(1.0, 2.0)
+            except Exception:
+                logger.debug("[%s] Pas de popup de cookies détectée", self.name)
+
             # 2. Entrer le pseudo si le champ est visible (pas connecté)
             try:
                 pseudo_input = page.locator("input[type='text']").first
