@@ -1,0 +1,25 @@
+# Pseudo Minecraft (obligatoire)
+pseudo: "CHANGE_ME"
+
+# Mode navigateur
+headless: true          # true = invisible, false = voir le navigateur (debug)
+slow_mo: 0              # Millisecondes de délai entre chaque action (0 en prod, 500+ pour debug)
+
+# Configuration par site
+sites:
+  serveur_minecraft_vote:
+    enabled: true
+    interval_minutes: 90
+    random_delay_max: 5   # Marge aléatoire en minutes ajoutée à l'intervalle
+  serveur_prive:
+    enabled: true
+    interval_minutes: 90
+    random_delay_max: 5
+  serveur_minecraft:
+    enabled: true
+    interval_minutes: 180
+    random_delay_max: 5
+
+# Logging
+log_level: "INFO"         # DEBUG pour plus de détails
+log_file: "logs/votes.log"
