@@ -155,22 +155,3 @@ async def assign_auto_proxies(accounts: list[dict]) -> list[dict]:
             acc["_proxy_auto"] = True
 
     return accounts
-
-
-async def refresh_proxy_for_account(account: dict) -> str | None:
-    """Cherche un nouveau proxy pour un compte dont le proxy a échoué.
-
-    Retourne la nouvelle URL du proxy ou None.
-    """
-    logger.info("[%s] Recherche d'un nouveau proxy...", account["pseudo"])
-    working = await find_working_proxies(count=1)
-    if working:
-        new_proxy = working[0]["url"]
-        account["proxy"] = new_proxy
-        logger.info(
-            "[%s] Nouveau proxy assigné: %s (latence: %.0fms)",
-            account["pseudo"], new_proxy, working[0]["latency_ms"],
-        )
-        return new_proxy
-    logger.warning("[%s] Aucun proxy de remplacement trouvé", account["pseudo"])
-    return None
