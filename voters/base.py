@@ -32,7 +32,7 @@ class BaseVoter(ABC):
             # 1. Naviguer vers survivalworld.fr/vote
             logger.debug("[%s] Navigation vers %s", self.name, SURVIVALWORLD_VOTE_URL)
             await page.goto(SURVIVALWORLD_VOTE_URL, wait_until="domcontentloaded")
-            await human_delay(2.0, 4.0)
+            await human_delay(0.3, 0.8)
 
             # 1b. Gérer la popup de cookies si elle apparaît
             try:
@@ -40,11 +40,10 @@ class BaseVoter(ABC):
                     "button:has-text('Autoriser'), "
                     "a:has-text('Autoriser')"
                 ).first
-                await cookie_btn.wait_for(state="visible", timeout=3000)
-                await human_delay(0.5, 1.0)
+                await cookie_btn.wait_for(state="visible", timeout=2000)
                 await cookie_btn.click()
                 logger.debug("[%s] Popup de cookies acceptée", self.name)
-                await human_delay(1.0, 2.0)
+                await human_delay(0.3, 0.5)
             except Exception:
                 logger.debug("[%s] Pas de popup de cookies détectée", self.name)
 
@@ -54,9 +53,8 @@ class BaseVoter(ABC):
                 is_visible = await pseudo_input.is_visible()
                 if is_visible:
                     await pseudo_input.click()
-                    await pseudo_input.fill("")
-                    await pseudo_input.type(self.pseudo, delay=80)
-                    await human_delay(0.5, 1.0)
+                    await pseudo_input.fill(self.pseudo)
+                    await human_delay(0.2, 0.4)
 
                     # 3. Cliquer sur Continuer
                     continuer_btn = page.locator(
@@ -66,7 +64,7 @@ class BaseVoter(ABC):
                     ).first
                     await continuer_btn.click()
                     logger.debug("[%s] Pseudo '%s' saisi et Continuer cliqué", self.name, self.pseudo)
-                    await human_delay(2.0, 4.0)
+                    await human_delay(0.5, 1.0)
                 else:
                     logger.debug("[%s] Champ pseudo non visible, session active", self.name)
             except Exception:
@@ -74,7 +72,7 @@ class BaseVoter(ABC):
 
             # 4. Attendre le chargement complet de la page
             await page.wait_for_load_state("domcontentloaded")
-            await human_delay(1.0, 2.0)
+            await human_delay(0.3, 0.6)
 
             # 5. Trouver le lien de vote correspondant par pattern d'URL
             vote_link = page.locator(f"a[href*='{self.link_pattern}']").first
@@ -89,7 +87,7 @@ class BaseVoter(ABC):
                 return False
 
             logger.debug("[%s] Lien de vote trouvé, clic en cours...", self.name)
-            await human_delay(1.0, 2.0)
+            await human_delay(0.3, 0.6)
 
             # 6. Cliquer sur le lien de vote (ouvre un nouvel onglet)
             async with page.context.expect_page() as new_page_info:
@@ -105,7 +103,7 @@ class BaseVoter(ABC):
                 if not new_page.is_closed():
                     await new_page.close()
             else:
-                await human_delay(1.5, 3.0)
+                await human_delay(0.3, 0.6)
 
                 # 7. Effectuer le vote sur le site externe
                 logger.debug("[%s] Gestion du vote sur le site externe...", self.name)
@@ -114,7 +112,6 @@ class BaseVoter(ABC):
                 # 8. Fermer l'onglet externe
                 if not new_page.is_closed():
                     await new_page.close()
-                await human_delay(1.5, 3.0)
 
             # 9. Gérer la popup de confirmation sur survivalworld.fr
             try:
@@ -122,8 +119,7 @@ class BaseVoter(ABC):
                     "button:has-text('Fermer'), "
                     "a:has-text('Fermer')"
                 ).first
-                await fermer_btn.wait_for(state="visible", timeout=5000)
-                await human_delay(0.5, 1.0)
+                await fermer_btn.wait_for(state="visible", timeout=3000)
                 await fermer_btn.click()
                 logger.debug("[%s] Popup de confirmation fermée", self.name)
             except Exception:

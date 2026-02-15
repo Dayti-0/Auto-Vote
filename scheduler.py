@@ -87,9 +87,7 @@ class VoteScheduler:
         """Calcule le délai avant le prochain vote (intervalle + marge aléatoire)."""
         base = voter.interval_minutes * 60
         max_jitter = voter.random_delay_max * 60
-        min_jitter = 2 * 60
-        # S'assurer que min <= max pour randint
-        if max_jitter < min_jitter:
-            max_jitter = min_jitter
-        jitter = random.randint(min_jitter, max_jitter)
+        if max_jitter <= 0:
+            return base
+        jitter = random.randint(0, max_jitter)
         return base + jitter

@@ -10,15 +10,15 @@ sites:
   serveur_minecraft_vote:
     enabled: true
     interval_minutes: 90
-    random_delay_max: 5   # Marge aléatoire en minutes ajoutée à l'intervalle
+    random_delay_max: 0   # 0 = vote dès que le cooldown expire
   serveur_prive:
     enabled: true
     interval_minutes: 90
-    random_delay_max: 5
+    random_delay_max: 0
   serveur_minecraft:
     enabled: true
     interval_minutes: 180
-    random_delay_max: 5
+    random_delay_max: 0
 
 # Logging
 log_level: "INFO"         # DEBUG pour plus de détails
