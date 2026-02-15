@@ -23,6 +23,9 @@ class BaseVoter(ABC):
         self.vote_count: int = 0
         self.consecutive_failures: int = 0
 
+    # Sous-classes peuvent mettre quick_close = True pour fermer la page externe immédiatement
+    quick_close = False
+
     async def vote(self, page) -> bool:
         """Effectue le vote en passant par survivalworld.fr/vote."""
         try:
@@ -94,16 +97,24 @@ class BaseVoter(ABC):
 
             new_page = await new_page_info.value
             await new_page.wait_for_load_state("domcontentloaded")
-            await human_delay(1.5, 3.0)
 
-            # 7. Effectuer le vote sur le site externe
-            logger.debug("[%s] Gestion du vote sur le site externe...", self.name)
-            success = await self._handle_external_vote(new_page)
+            if self.quick_close:
+                # Vote comptabilisé au chargement — fermer immédiatement
+                logger.debug("[%s] Page chargée, fermeture immédiate", self.name)
+                success = True
+                if not new_page.is_closed():
+                    await new_page.close()
+            else:
+                await human_delay(1.5, 3.0)
 
-            # 8. Fermer l'onglet externe
-            if not new_page.is_closed():
-                await new_page.close()
-            await human_delay(1.5, 3.0)
+                # 7. Effectuer le vote sur le site externe
+                logger.debug("[%s] Gestion du vote sur le site externe...", self.name)
+                success = await self._handle_external_vote(new_page)
+
+                # 8. Fermer l'onglet externe
+                if not new_page.is_closed():
+                    await new_page.close()
+                await human_delay(1.5, 3.0)
 
             # 9. Gérer la popup de confirmation sur survivalworld.fr
             try:
