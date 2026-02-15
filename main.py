@@ -133,7 +133,7 @@ async def main():
     # Scheduler
     scheduler = VoteScheduler(browser, voters)
 
-    # Gestion CTRL+C
+    # Gestion CTRL+C (cross-platform)
     loop = asyncio.get_running_loop()
     shutdown_event = asyncio.Event()
 
@@ -141,8 +141,15 @@ async def main():
         logger.info("Arrêt demandé (CTRL+C)...")
         shutdown_event.set()
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, handle_signal)
+    if sys.platform != "win32":
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, handle_signal)
+    else:
+        # Windows: add_signal_handler is not supported, use signal.signal instead
+        def _win_handler(signum, frame):
+            loop.call_soon_threadsafe(shutdown_event.set)
+        signal.signal(signal.SIGINT, _win_handler)
+        signal.signal(signal.SIGTERM, _win_handler)
 
     # Lancer le scheduler en parallèle avec l'attente du signal
     scheduler_task = asyncio.create_task(scheduler.start())
