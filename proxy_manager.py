@@ -16,10 +16,10 @@ PROXYSCRAPE_API = (
     "&timeout=20000"
 )
 
-# URL légère pour tester la connectivité d'un proxy
-TEST_URL = "https://httpbin.org/ip"
+# URL légère pour tester la connectivité d'un proxy (Google 204 = rapide et fiable)
+TEST_URL = "http://www.google.com/generate_204"
 # Timeout pour le test de chaque proxy (secondes)
-TEST_TIMEOUT = 8
+TEST_TIMEOUT = 10
 # Nombre max de proxies à tester en parallèle
 MAX_CONCURRENT_TESTS = 20
 
@@ -60,7 +60,7 @@ async def test_proxy(proxy_url: str, test_url: str = TEST_URL) -> tuple[str, boo
                 timeout=aiohttp.ClientTimeout(total=TEST_TIMEOUT),
                 ssl=False,
             ) as resp:
-                if resp.status == 200:
+                if resp.status in (200, 204):
                     latency = (time.monotonic() - start) * 1000
                     return proxy_url, True, latency
                 return proxy_url, False, 0

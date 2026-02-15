@@ -1,4 +1,5 @@
 import logging
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 
@@ -22,6 +23,7 @@ class BaseVoter(ABC):
         self.last_vote_time: datetime | None = None
         self.vote_count: int = 0
         self.consecutive_failures: int = 0
+        self.next_vote_available: datetime | None = None
 
     @property
     def log_prefix(self) -> str:
@@ -91,12 +93,56 @@ class BaseVoter(ABC):
                 self.record_failure(f"Lien de vote introuvable (pattern: {self.link_pattern})")
                 return False
 
-            logger.debug("%s Lien de vote trouvé, clic en cours...", self.log_prefix)
+            logger.debug("%s Lien de vote trouvé, vérification du cooldown...", self.log_prefix)
             await human_delay(0.3, 0.6)
+
+            # 5b. Vérifier si le bouton est en cooldown (classe "disabled")
+            force_click = False
+            is_disabled = await vote_link.evaluate("el => el.classList.contains('disabled')")
+            if is_disabled:
+                # Attendre que le JS active le bouton (cooldown peut expirer pendant le chargement)
+                try:
+                    enabled_link = page.locator(
+                        f"a[href*='{self.link_pattern}']:not(.disabled)"
+                    ).first
+                    await enabled_link.wait_for(state="visible", timeout=10000)
+                    vote_link = enabled_link
+                    logger.debug("%s Bouton de vote activé après attente", self.log_prefix)
+                except Exception:
+                    # Bouton toujours désactivé — vérifier data-vote-time
+                    vote_time_str = await vote_link.get_attribute("data-vote-time")
+                    if vote_time_str:
+                        try:
+                            vote_time_ms = int(vote_time_str)
+                            now_ms = int(time.time() * 1000)
+                            remaining_ms = vote_time_ms - now_ms
+                            if remaining_ms > 0:
+                                remaining_min = remaining_ms / 60000
+                                self.next_vote_available = datetime.fromtimestamp(
+                                    vote_time_ms / 1000
+                                )
+                                logger.warning(
+                                    "%s Vote en cooldown, disponible dans %.0f min (à %s)",
+                                    self.log_prefix,
+                                    remaining_min,
+                                    self.next_vote_available.strftime("%H:%M"),
+                                )
+                                self.record_failure(
+                                    f"Cooldown ({remaining_min:.0f} min restantes)"
+                                )
+                                return False
+                        except ValueError:
+                            pass
+                    # data-vote-time absent ou expiré — tenter un clic forcé
+                    logger.warning(
+                        "%s Bouton marqué désactivé, tentative de clic forcé",
+                        self.log_prefix,
+                    )
+                    force_click = True
 
             # 6. Cliquer sur le lien de vote (ouvre un nouvel onglet)
             async with page.context.expect_page() as new_page_info:
-                await vote_link.click()
+                await vote_link.click(force=force_click)
 
             new_page = await new_page_info.value
             await new_page.wait_for_load_state("domcontentloaded")
