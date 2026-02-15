@@ -77,6 +77,7 @@ def build_voters(pseudo: str, sites_config: dict) -> list:
     sp = sites_config.get("serveur_prive", {})
     if sp.get("enabled", True):
         voters.append(ServeurPriveVoter(
+            pseudo=pseudo,
             interval_minutes=sp.get("interval_minutes", 90),
             random_delay_max=sp.get("random_delay_max", 5),
         ))
@@ -84,6 +85,7 @@ def build_voters(pseudo: str, sites_config: dict) -> list:
     sm = sites_config.get("serveur_minecraft", {})
     if sm.get("enabled", True):
         voters.append(ServeurMinecraftVoter(
+            pseudo=pseudo,
             interval_minutes=sm.get("interval_minutes", 180),
             random_delay_max=sm.get("random_delay_max", 5),
         ))
