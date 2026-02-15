@@ -8,14 +8,20 @@ from voters.base import BaseVoter
 
 logger = logging.getLogger("auto-voter")
 
+# Nombre d'échecs consécutifs avant de changer de proxy (comptes auto uniquement)
+PROXY_REFRESH_THRESHOLD = 3
+
 
 class AccountVoters:
     """Regroupe les voters d'un même compte avec leur proxy."""
 
-    def __init__(self, pseudo: str, proxy: str | None, voters: list[BaseVoter]):
+    def __init__(self, pseudo: str, proxy: str | None, voters: list[BaseVoter],
+                 is_auto_proxy: bool = False):
         self.pseudo = pseudo
         self.proxy = proxy
         self.voters = voters
+        self.is_auto_proxy = is_auto_proxy
+        self.consecutive_failures = 0
 
 
 class VoteScheduler:
@@ -87,12 +93,18 @@ class VoteScheduler:
                 page = await self.browser.new_page(account.pseudo)
                 success = await voter.vote(page)
 
-                if not success:
+                if success:
+                    account.consecutive_failures = 0
+                else:
+                    account.consecutive_failures += 1
                     logger.warning("[%s][%s] Vote échoué", account.pseudo, voter.name)
+                    await self._maybe_refresh_proxy(account)
 
             except Exception as e:
+                account.consecutive_failures += 1
                 logger.error("[%s][%s] Erreur inattendue: %s", account.pseudo, voter.name, e)
                 try:
+                    await self._maybe_refresh_proxy(account)
                     await self.browser.restart_context(account.pseudo, account.proxy)
                 except Exception as restart_err:
                     logger.error(
@@ -106,6 +118,32 @@ class VoteScheduler:
                         await page.close()
                     except Exception:
                         pass
+
+    async def _maybe_refresh_proxy(self, account: AccountVoters):
+        """Change le proxy automatiquement si le compte est en mode auto et a trop d'échecs."""
+        if not account.is_auto_proxy:
+            return
+        if account.consecutive_failures < PROXY_REFRESH_THRESHOLD:
+            return
+
+        logger.warning(
+            "[%s] %d échecs consécutifs — recherche d'un nouveau proxy...",
+            account.pseudo, account.consecutive_failures,
+        )
+
+        try:
+            from proxy_manager import refresh_proxy_for_account
+            account_dict = {"pseudo": account.pseudo, "proxy": account.proxy}
+            new_proxy = await refresh_proxy_for_account(account_dict)
+            if new_proxy:
+                account.proxy = new_proxy
+                account.consecutive_failures = 0
+                await self.browser.restart_context(account.pseudo, new_proxy)
+                logger.info("[%s] Proxy changé avec succès: %s", account.pseudo, new_proxy)
+            else:
+                logger.warning("[%s] Aucun proxy de remplacement, on continue avec l'actuel", account.pseudo)
+        except Exception as e:
+            logger.error("[%s] Erreur lors du changement de proxy: %s", account.pseudo, e)
 
     @staticmethod
     def _compute_delay(voter: BaseVoter) -> int:

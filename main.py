@@ -7,6 +7,7 @@ import yaml
 
 from browser import BrowserManager
 from logger_setup import setup_logger
+from proxy_manager import assign_auto_proxies
 from scheduler import VoteScheduler, AccountVoters
 from voters import (
     ServeurMinecraftVoteVoter,
@@ -60,11 +61,16 @@ def print_banner(accounts: list[dict], headless: bool, sites_config: dict):
     for acc in accounts:
         pseudo = acc["pseudo"]
         proxy = acc.get("proxy")
-        if proxy:
-            # Masquer le mot de passe dans l'affichage
+        if proxy == "auto":
+            lines.append(f"  [OK] {pseudo} (proxy: auto - ProxyScrape)")
+        elif proxy:
             from browser import _mask_proxy
             proxy_display = _mask_proxy(proxy)
-            lines.append(f"  [OK] {pseudo} (proxy: {proxy_display})")
+            latency = acc.get("_proxy_latency")
+            if latency:
+                lines.append(f"  [OK] {pseudo} (proxy: {proxy_display} ~{latency:.0f}ms)")
+            else:
+                lines.append(f"  [OK] {pseudo} (proxy: {proxy_display})")
         else:
             lines.append(f"  [OK] {pseudo} (IP locale)")
 
@@ -153,7 +159,13 @@ async def main():
         log_file=config.get("log_file", "logs/votes.log"),
     )
 
-    # Bannière
+    # Résoudre les proxies automatiques (proxy: "auto")
+    has_auto = any(acc.get("proxy") == "auto" for acc in accounts)
+    if has_auto:
+        print("Recherche de proxies automatiques (ProxyScrape)...")
+        accounts = await assign_auto_proxies(accounts)
+
+    # Bannière (après résolution des proxies pour afficher les IPs réelles)
     print_banner(accounts, headless, sites_config)
 
     # Construire les groupes de voters par compte
@@ -161,9 +173,12 @@ async def main():
     for acc in accounts:
         pseudo = acc["pseudo"]
         proxy = acc.get("proxy")
+        is_auto = bool(acc.get("_proxy_auto"))
         voters = build_voters(pseudo, sites_config)
         if voters:
-            account_groups.append(AccountVoters(pseudo=pseudo, proxy=proxy, voters=voters))
+            account_groups.append(AccountVoters(
+                pseudo=pseudo, proxy=proxy, voters=voters, is_auto_proxy=is_auto,
+            ))
 
     if not account_groups:
         logger.error("Aucun site de vote actif ! Vérifiez config.yaml")

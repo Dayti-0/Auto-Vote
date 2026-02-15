@@ -3,18 +3,22 @@
 # ============================================================
 
 # Liste des comptes Minecraft à voter
-# Chaque compte peut avoir son propre proxy (optionnel)
+# Chaque compte peut avoir son propre proxy :
+#   - null     : pas de proxy (IP locale)
+#   - "auto"   : proxy gratuit récupéré automatiquement via ProxyScrape (testé avant usage)
+#   - "http://user:pass@ip:port"   : proxy HTTP/HTTPS manuel
+#   - "socks5://ip:port"           : proxy SOCKS5 manuel
 accounts:
   - pseudo: "CHANGE_ME"
-    proxy: null              # Pas de proxy (IP locale)
-    # proxy: "http://user:pass@ip:port"
-    # proxy: "socks5://ip:port"
+    proxy: null
 
-  # Exemples de comptes supplémentaires (décommentez pour activer) :
+  # Exemples :
   # - pseudo: "Joueur2"
-  #   proxy: "http://user:pass@proxy2.exemple.com:8080"
+  #   proxy: "auto"                # Proxy gratuit automatique
   # - pseudo: "Joueur3"
-  #   proxy: "socks5://proxy3.exemple.com:1080"
+  #   proxy: "http://user:pass@proxy.exemple.com:8080"
+  # - pseudo: "Joueur4"
+  #   proxy: "socks5://proxy.exemple.com:1080"
 
 # Mode navigateur
 headless: true          # true = invisible, false = voir le navigateur (debug)
