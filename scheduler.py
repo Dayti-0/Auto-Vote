@@ -61,7 +61,7 @@ class VoteScheduler:
         await self._execute_vote(account, voter)
 
         while True:
-            delay = self._compute_delay(voter)
+            delay = self._compute_smart_delay(voter)
             next_time = datetime.now() + timedelta(seconds=delay)
             logger.info(
                 "[%s][%s] Prochain vote à %s (dans %dm%ds)",
@@ -138,6 +138,18 @@ class VoteScheduler:
                 )
         except Exception as e:
             logger.error("[%s] Erreur rotation proxy: %s — on garde l'actuel", account.pseudo, e)
+
+    @staticmethod
+    def _compute_smart_delay(voter: BaseVoter) -> int:
+        """Calcule le délai en tenant compte du cooldown détecté sur le site."""
+        if voter.next_vote_available:
+            remaining = (voter.next_vote_available - datetime.now()).total_seconds()
+            voter.next_vote_available = None  # Reset après utilisation
+            if remaining > 0:
+                # Ajouter 1-3 min de marge après l'expiration du cooldown
+                jitter = random.randint(60, 180)
+                return int(remaining + jitter)
+        return VoteScheduler._compute_delay(voter)
 
     @staticmethod
     def _compute_delay(voter: BaseVoter) -> int:
