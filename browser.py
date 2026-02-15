@@ -31,14 +31,14 @@ def _find_chromium_executable() -> str | None:
 
 
 class BrowserManager:
-    """Gère une instance unique du navigateur Playwright."""
+    """Gère une instance unique du navigateur Playwright avec plusieurs contextes (un par compte)."""
 
     def __init__(self, headless: bool = True, slow_mo: int = 0):
         self.headless = headless
         self.slow_mo = slow_mo
         self._playwright = None
         self._browser: Browser | None = None
-        self._context: BrowserContext | None = None
+        self._contexts: dict[str, BrowserContext] = {}  # pseudo -> context
 
     async def start(self):
         """Lance le navigateur Chromium."""
@@ -56,27 +56,48 @@ class BrowserManager:
             logger.debug("Utilisation de Chromium: %s", exe)
 
         self._browser = await self._playwright.chromium.launch(**launch_kwargs)
-        self._context = await self._browser.new_context(
-            user_agent=USER_AGENT,
-            viewport={"width": 1920, "height": 1080},
-            locale="fr-FR",
-        )
-        self._context.set_default_timeout(15000)  # 15 secondes
-        self._context.set_default_navigation_timeout(15000)
         logger.debug("Navigateur lancé avec succès")
 
-    async def new_page(self) -> Page:
-        """Ouvre un nouvel onglet dans le contexte existant."""
-        if not self._context:
+    async def create_context(self, pseudo: str, proxy: str | None = None) -> BrowserContext:
+        """Crée un contexte navigateur isolé pour un compte, avec proxy optionnel."""
+        if not self._browser:
             await self.start()
-        return await self._context.new_page()
+
+        context_kwargs = {
+            "user_agent": USER_AGENT,
+            "viewport": {"width": 1920, "height": 1080},
+            "locale": "fr-FR",
+        }
+
+        if proxy:
+            context_kwargs["proxy"] = _parse_proxy(proxy)
+            logger.info("[%s] Contexte créé avec proxy: %s", pseudo, _mask_proxy(proxy))
+        else:
+            logger.info("[%s] Contexte créé sans proxy (IP locale)", pseudo)
+
+        context = await self._browser.new_context(**context_kwargs)
+        context.set_default_timeout(15000)
+        context.set_default_navigation_timeout(15000)
+
+        self._contexts[pseudo] = context
+        return context
+
+    async def new_page(self, pseudo: str) -> Page:
+        """Ouvre un nouvel onglet dans le contexte du compte donné."""
+        context = self._contexts.get(pseudo)
+        if not context:
+            raise RuntimeError(f"Aucun contexte navigateur pour le pseudo '{pseudo}'")
+        return await context.new_page()
 
     async def close(self):
         """Ferme le navigateur proprement."""
         logger.info("Fermeture du navigateur")
-        if self._context:
-            await self._context.close()
-            self._context = None
+        for pseudo, context in self._contexts.items():
+            try:
+                await context.close()
+            except Exception:
+                pass
+        self._contexts.clear()
         if self._browser:
             await self._browser.close()
             self._browser = None
@@ -87,12 +108,75 @@ class BrowserManager:
     async def restart(self):
         """Redémarre le navigateur en cas de crash."""
         logger.warning("Redémarrage du navigateur...")
+        # Sauvegarder les infos des contextes pour les recréer
+        old_contexts = dict(self._contexts)
         await self.close()
         await self.start()
+        # Note : les contextes doivent être recréés par l'appelant
+
+    async def restart_context(self, pseudo: str, proxy: str | None = None):
+        """Recrée le contexte d'un compte après un crash."""
+        old_ctx = self._contexts.pop(pseudo, None)
+        if old_ctx:
+            try:
+                await old_ctx.close()
+            except Exception:
+                pass
+        await self.create_context(pseudo, proxy)
 
     @property
     def is_running(self) -> bool:
         return self._browser is not None and self._browser.is_connected()
+
+
+def _parse_proxy(proxy_str: str) -> dict:
+    """Parse une chaîne proxy en dict Playwright.
+
+    Formats supportés :
+      - http://ip:port
+      - http://user:pass@ip:port
+      - socks5://ip:port
+      - socks5://user:pass@ip:port
+    """
+    result = {"server": proxy_str}
+
+    # Extraire user:pass si présent
+    # Format: scheme://user:pass@host:port
+    if "@" in proxy_str:
+        scheme_rest = proxy_str.split("://", 1)
+        if len(scheme_rest) == 2:
+            scheme = scheme_rest[0]
+            rest = scheme_rest[1]
+            auth_host = rest.split("@", 1)
+            if len(auth_host) == 2:
+                auth = auth_host[0]
+                host = auth_host[1]
+                result["server"] = f"{scheme}://{host}"
+                user_pass = auth.split(":", 1)
+                result["username"] = user_pass[0]
+                if len(user_pass) == 2:
+                    result["password"] = user_pass[1]
+
+    return result
+
+
+def _mask_proxy(proxy_str: str) -> str:
+    """Masque le mot de passe dans une chaîne proxy pour les logs."""
+    if "@" not in proxy_str:
+        return proxy_str
+    scheme_rest = proxy_str.split("://", 1)
+    if len(scheme_rest) != 2:
+        return proxy_str
+    scheme = scheme_rest[0]
+    rest = scheme_rest[1]
+    auth_host = rest.split("@", 1)
+    if len(auth_host) != 2:
+        return proxy_str
+    auth = auth_host[0]
+    host = auth_host[1]
+    user_pass = auth.split(":", 1)
+    user = user_pass[0]
+    return f"{scheme}://{user}:***@{host}"
 
 
 async def human_delay(min_sec: float = 1.0, max_sec: float = 3.0):

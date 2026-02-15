@@ -1,5 +1,24 @@
-# Pseudo Minecraft (obligatoire)
-pseudo: "CHANGE_ME"
+# ============================================================
+# Configuration Multi-Comptes avec Proxies
+# ============================================================
+
+# Liste des comptes Minecraft à voter
+# Chaque compte peut avoir son propre proxy :
+#   - null     : pas de proxy (IP locale)
+#   - "auto"   : proxy gratuit récupéré automatiquement via ProxyScrape (testé avant usage)
+#   - "http://user:pass@ip:port"   : proxy HTTP/HTTPS manuel
+#   - "socks5://ip:port"           : proxy SOCKS5 manuel
+accounts:
+  - pseudo: "CHANGE_ME"
+    proxy: null
+
+  # Exemples :
+  # - pseudo: "Joueur2"
+  #   proxy: "auto"                # Proxy gratuit automatique
+  # - pseudo: "Joueur3"
+  #   proxy: "http://user:pass@proxy.exemple.com:8080"
+  # - pseudo: "Joueur4"
+  #   proxy: "socks5://proxy.exemple.com:1080"
 
 # Mode navigateur
 headless: true          # true = invisible, false = voir le navigateur (debug)
