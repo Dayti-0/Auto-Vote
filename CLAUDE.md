@@ -16,7 +16,7 @@ Programme Python qui vote automatiquement pour le serveur Minecraft SurvivalWorl
 
 Le site `https://survivalworld.fr/vote` contient :
 1. Un champ texte pour saisir le pseudo Minecraft + bouton "Continuer"
-2. Après validation du pseudo, 5 boutons de vote apparaissent (liens vers des sites externes)
+2. Après validation du pseudo, 3 boutons de vote apparaissent (liens vers des sites externes)
 3. Chaque bouton ouvre un site de vote dans un nouvel onglet
 
 **IMPORTANT** : Les URLs des boutons contiennent `{player}` comme placeholder pour le pseudo. Exemple :
@@ -24,7 +24,7 @@ Le site `https://survivalworld.fr/vote` contient :
 - `https://serveur-prive.net/minecraft/survivalworld/vote`
 - `https://serveur-minecraft.com/4224`
 
-## Sites de vote à implémenter (3 sur 5)
+## Sites de vote à implémenter (3)
 
 ### Site 1 : serveur-minecraft-vote.fr (toutes les 1h30)
 - **URL** : `https://serveur-minecraft-vote.fr/serveurs/survivalworld.229/vote?pseudo={pseudo}`
@@ -51,10 +51,6 @@ Le site `https://survivalworld.fr/vote` contient :
   2. Attendre le chargement complet de la page (le vote est comptabilisé au chargement)
   3. Fermer la page
 - **Intervalle** : 180 minutes + marge aléatoire de 2-5 min
-
-### Sites EXCLUS (protections anti-bot)
-- ❌ top-serveurs.net → Protection Cloudflare
-- ❌ serveursminecraft.org → Recaptcha
 
 ## Architecture du projet
 
@@ -191,8 +187,6 @@ class BaseVoter(ABC):
 ║  ✅ serveur-minecraft-vote.fr (1h30)     ║
 ║  ✅ serveur-prive.net (1h30)             ║
 ║  ✅ serveur-minecraft.com (3h)           ║
-║  ❌ top-serveurs.net (Cloudflare)        ║
-║  ❌ serveursminecraft.org (Recaptcha)    ║
 ╠══════════════════════════════════════════╣
 ║  Mode: headless                          ║
 ║  Votes lancés...                         ║

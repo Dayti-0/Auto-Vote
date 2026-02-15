@@ -53,8 +53,6 @@ def print_banner(pseudo: str, headless: bool, sites_config: dict):
     else:
         lines.append("  [--] serveur-minecraft.com (desactive)")
 
-    lines.append("  [XX] top-serveurs.net (Cloudflare)")
-    lines.append("  [XX] serveursminecraft.org (Recaptcha)")
     lines.append("══════════════════════════════════════════")
     lines.append(f"  Mode: {mode}")
     lines.append("  Votes lances...")
