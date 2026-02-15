@@ -3,7 +3,7 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from browser import human_delay, handle_cloudflare_challenge
+from browser import human_delay
 
 logger = logging.getLogger("auto-voter")
 
@@ -43,9 +43,6 @@ class BaseVoter(ABC):
             logger.debug("%s Navigation vers %s", self.log_prefix, SURVIVALWORLD_VOTE_URL)
             await page.goto(SURVIVALWORLD_VOTE_URL, wait_until="domcontentloaded")
             await human_delay(0.3, 0.8)
-
-            # 1a. Gérer un éventuel challenge Cloudflare sur survivalworld.fr
-            await handle_cloudflare_challenge(page, log_prefix=self.log_prefix)
 
             # 1b. Gérer la popup de cookies si elle apparaît
             try:
@@ -150,9 +147,6 @@ class BaseVoter(ABC):
 
             new_page = await new_page_info.value
             await new_page.wait_for_load_state("domcontentloaded")
-
-            # 6b. Gérer un éventuel challenge Cloudflare sur le site externe
-            await handle_cloudflare_challenge(new_page, log_prefix=self.log_prefix)
 
             if self.quick_close:
                 # Vote comptabilisé au chargement — fermer immédiatement

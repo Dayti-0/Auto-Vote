@@ -2,7 +2,7 @@ import logging
 
 from playwright.async_api import Page
 
-from browser import human_delay, handle_cloudflare_challenge
+from browser import human_delay
 from voters.base import BaseVoter
 
 logger = logging.getLogger("auto-voter")
@@ -29,23 +29,7 @@ class ServeurMinecraftVoteVoter(BaseVoter):
             except Exception:
                 await page.wait_for_load_state("domcontentloaded", timeout=int(10000 * self.timeout_factor))
 
-            # 2. Vérifier si Cloudflare bloque encore (si le challenge dans base.py n'a pas suffi)
-            try:
-                title = await page.title()
-                if "just a moment" in title.lower():
-                    logger.warning(
-                        "%s Page Cloudflare toujours active après le handler initial, retry...",
-                        self.log_prefix,
-                    )
-                    resolved = await handle_cloudflare_challenge(page, log_prefix=self.log_prefix)
-                    if not resolved:
-                        raise Exception("Challenge Cloudflare non résolu sur serveur-minecraft-vote.fr")
-            except Exception as e:
-                if "cloudflare" in str(e).lower():
-                    raise
-                logger.debug("%s Vérification titre échouée: %s", self.log_prefix, e)
-
-            # 3. Remplir le champ pseudo si visible (pré-rempli via ?pseudo= dans l'URL)
+            # 2. Remplir le champ pseudo si visible (pré-rempli via ?pseudo= dans l'URL)
             logger.debug("%s Recherche du champ pseudo sur le site externe", self.log_prefix)
             pseudo_input = page.locator("#pseudo")
             try:
