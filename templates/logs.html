@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Logs{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Logs</h1>
+    <div class="controls">
+        <button type="button" class="btn btn-sm" onclick="refreshLogs()">Rafraichir</button>
+        <label class="checkbox-label inline">
+            <input type="checkbox" id="auto-scroll" checked> Auto-scroll
+        </label>
+    </div>
+</div>
+
+<div class="card log-card">
+    <pre id="log-output">{% for line in log_lines %}{{ line }}{% endfor %}</pre>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var autoRefresh = null;
+
+function refreshLogs() {
+    fetch('/api/logs')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var pre = document.getElementById('log-output');
+            pre.textContent = data.lines.join('');
+            if (document.getElementById('auto-scroll').checked) {
+                pre.scrollTop = pre.scrollHeight;
+            }
+        })
+        .catch(function() {});
+}
+
+// Rafraichir toutes les 5 secondes
+autoRefresh = setInterval(refreshLogs, 5000);
+
+// Scroll en bas au chargement
+window.addEventListener('load', function() {
+    var pre = document.getElementById('log-output');
+    pre.scrollTop = pre.scrollHeight;
+});
+</script>
+{% endblock %}

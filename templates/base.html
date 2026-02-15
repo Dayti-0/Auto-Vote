@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Auto-Voter{% endblock %} - SurvivalWorld</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <h2>Auto-Voter</h2>
+            <span class="subtitle">SurvivalWorld</span>
+        </div>
+        <ul class="nav-links">
+            <li class="{{ 'active' if request.endpoint == 'dashboard' }}">
+                <a href="{{ url_for('dashboard') }}">
+                    <span class="icon">&#9632;</span> Dashboard
+                </a>
+            </li>
+            <li class="{{ 'active' if request.endpoint == 'accounts' }}">
+                <a href="{{ url_for('accounts') }}">
+                    <span class="icon">&#9998;</span> Comptes
+                </a>
+            </li>
+            <li class="{{ 'active' if request.endpoint == 'settings' }}">
+                <a href="{{ url_for('settings') }}">
+                    <span class="icon">&#9881;</span> Configuration
+                </a>
+            </li>
+            <li class="{{ 'active' if request.endpoint == 'logs' }}">
+                <a href="{{ url_for('logs') }}">
+                    <span class="icon">&#9776;</span> Logs
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

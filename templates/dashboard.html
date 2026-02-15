@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Dashboard</h1>
+    <div class="controls">
+        {% if status.running %}
+            <span class="badge badge-running">En cours</span>
+            <form method="POST" action="{{ url_for('stop_voting') }}" class="inline-form">
+                <button type="submit" class="btn btn-danger">Arreter</button>
+            </form>
+        {% else %}
+            <span class="badge badge-stopped">Arrete</span>
+            <form method="POST" action="{{ url_for('start_voting') }}" class="inline-form">
+                <button type="submit" class="btn btn-success">Demarrer</button>
+            </form>
+        {% endif %}
+    </div>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value" id="stat-accounts">{{ status.num_accounts }}</div>
+        <div class="stat-label">Comptes actifs</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" id="stat-votes">{{ status.total_votes }}</div>
+        <div class="stat-label">Votes totaux</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" id="stat-failures">{{ status.total_failures }}</div>
+        <div class="stat-label">Echecs en cours</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" id="stat-uptime">{{ status.start_time or '-' }}</div>
+        <div class="stat-label">Demarre depuis</div>
+    </div>
+</div>
+
+{% if status.accounts %}
+<h2>Detail des votes</h2>
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Pseudo</th>
+                <th>Site</th>
+                <th>Votes</th>
+                <th>Dernier vote</th>
+                <th>Echecs</th>
+                <th>Statut</th>
+            </tr>
+        </thead>
+        <tbody id="vote-table-body">
+            {% for entry in status.accounts %}
+            <tr>
+                <td><strong>{{ entry.pseudo }}</strong></td>
+                <td>{{ entry.site }}</td>
+                <td>{{ entry.vote_count }}</td>
+                <td>{{ entry.last_vote_time or '-' }}</td>
+                <td>
+                    {% if entry.consecutive_failures > 0 %}
+                        <span class="text-danger">{{ entry.consecutive_failures }}</span>
+                    {% else %}
+                        0
+                    {% endif %}
+                </td>
+                <td>
+                    {% if entry.last_error %}
+                        <span class="badge badge-error" title="{{ entry.last_error }}">Erreur</span>
+                    {% elif entry.next_vote_available %}
+                        <span class="badge badge-cooldown">Cooldown {{ entry.next_vote_available }}</span>
+                    {% elif entry.vote_count > 0 %}
+                        <span class="badge badge-ok">OK</span>
+                    {% else %}
+                        <span class="badge badge-waiting">En attente</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% elif status.running %}
+<p class="info-text">Demarrage en cours...</p>
+{% else %}
+<p class="info-text">Aucun vote en cours. Demarrez le voting pour commencer.</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if status.running %}
+<script>
+    // Refresh auto du dashboard toutes les 10 secondes
+    setInterval(function() {
+        fetch('/api/status')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('stat-votes').textContent = data.total_votes;
+                document.getElementById('stat-failures').textContent = data.total_failures;
+                document.getElementById('stat-accounts').textContent = data.num_accounts;
+
+                if (data.accounts.length > 0) {
+                    let html = '';
+                    data.accounts.forEach(function(e) {
+                        let statusBadge = '';
+                        if (e.last_error) {
+                            statusBadge = '<span class="badge badge-error" title="' + e.last_error + '">Erreur</span>';
+                        } else if (e.next_vote_available) {
+                            statusBadge = '<span class="badge badge-cooldown">Cooldown ' + e.next_vote_available + '</span>';
+                        } else if (e.vote_count > 0) {
+                            statusBadge = '<span class="badge badge-ok">OK</span>';
+                        } else {
+                            statusBadge = '<span class="badge badge-waiting">En attente</span>';
+                        }
+                        let failHtml = e.consecutive_failures > 0
+                            ? '<span class="text-danger">' + e.consecutive_failures + '</span>'
+                            : '0';
+                        html += '<tr>'
+                            + '<td><strong>' + e.pseudo + '</strong></td>'
+                            + '<td>' + e.site + '</td>'
+                            + '<td>' + e.vote_count + '</td>'
+                            + '<td>' + (e.last_vote_time || '-') + '</td>'
+                            + '<td>' + failHtml + '</td>'
+                            + '<td>' + statusBadge + '</td>'
+                            + '</tr>';
+                    });
+                    document.getElementById('vote-table-body').innerHTML = html;
+                }
+
+                if (!data.running) {
+                    location.reload();
+                }
+            })
+            .catch(function() {});
+    }, 10000);
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Comptes{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Gestion des comptes</h1>
+</div>
+
+{% if running %}
+<div class="flash flash-warning">
+    Le voting est en cours. Les modifications prendront effet au prochain redemarrage.
+</div>
+{% endif %}
+
+<!-- Formulaire d'ajout -->
+<div class="card">
+    <h3>Ajouter un compte</h3>
+    <form method="POST" action="{{ url_for('add_account') }}" class="form-inline">
+        <div class="form-group">
+            <label for="pseudo">Pseudo Minecraft</label>
+            <input type="text" id="pseudo" name="pseudo" placeholder="MonPseudo" required>
+        </div>
+        <div class="form-group">
+            <label for="proxy">Proxy (optionnel)</label>
+            <input type="text" id="proxy" name="proxy" placeholder="null, auto, ou http://ip:port">
+            <small class="help-text">Laisser vide = IP locale | "auto" = ProxyScrape | URL = proxy manuel</small>
+        </div>
+        <button type="submit" class="btn btn-success">Ajouter</button>
+    </form>
+</div>
+
+<!-- Liste des comptes -->
+<div class="card">
+    <h3>Comptes configures ({{ accounts|length }})</h3>
+
+    {% if accounts %}
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Pseudo</th>
+                    <th>Proxy</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for acc in accounts %}
+                <tr id="row-{{ loop.index0 }}">
+                    <td>{{ loop.index }}</td>
+                    <td>
+                        <span class="display-mode">
+                            <strong>{{ acc.pseudo }}</strong>
+                        </span>
+                        <form method="POST" action="{{ url_for('edit_account', index=loop.index0) }}" class="edit-form" style="display:none">
+                            <input type="text" name="pseudo" value="{{ acc.pseudo }}" required>
+                        </form>
+                    </td>
+                    <td>
+                        <span class="display-mode">
+                            {% if acc.proxy == 'auto' %}
+                                <span class="badge badge-info">auto</span>
+                            {% elif acc.proxy %}
+                                <code>{{ acc.proxy }}</code>
+                            {% else %}
+                                <span class="text-muted">IP locale</span>
+                            {% endif %}
+                        </span>
+                        <form method="POST" action="{{ url_for('edit_account', index=loop.index0) }}" class="edit-form" style="display:none">
+                            <input type="text" name="proxy" value="{{ acc.proxy or '' }}" placeholder="null, auto, ou http://...">
+                        </form>
+                    </td>
+                    <td class="actions">
+                        <button type="button" class="btn btn-sm btn-edit" onclick="toggleEdit({{ loop.index0 }})">Modifier</button>
+                        <form method="POST" action="{{ url_for('delete_account', index=loop.index0) }}" class="inline-form" onsubmit="return confirm('Supprimer le compte {{ acc.pseudo }} ?')">
+                            <button type="submit" class="btn btn-sm btn-danger">Supprimer</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="info-text">Aucun compte configure. Ajoutez un compte ci-dessus.</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleEdit(index) {
+    var row = document.getElementById('row-' + index);
+    var displays = row.querySelectorAll('.display-mode');
+    var forms = row.querySelectorAll('.edit-form');
+    var btn = row.querySelector('.btn-edit');
+
+    var isEditing = forms[0].style.display !== 'none';
+
+    if (isEditing) {
+        // Annuler l'edition
+        displays.forEach(function(el) { el.style.display = ''; });
+        forms.forEach(function(el) { el.style.display = 'none'; });
+        btn.textContent = 'Modifier';
+    } else {
+        // Activer l'edition
+        displays.forEach(function(el) { el.style.display = 'none'; });
+        forms.forEach(function(el) { el.style.display = ''; });
+        btn.textContent = 'Annuler';
+
+        // Ajouter un bouton de sauvegarde (fusionne les 2 formulaires)
+        var pseudoInput = forms[0].querySelector('input[name="pseudo"]');
+        var proxyInput = forms[1].querySelector('input[name="proxy"]');
+
+        // Utiliser le premier formulaire pour soumettre les deux valeurs
+        if (!forms[0].querySelector('input[name="proxy"]')) {
+            var hiddenProxy = document.createElement('input');
+            hiddenProxy.type = 'hidden';
+            hiddenProxy.name = 'proxy';
+            hiddenProxy.className = 'proxy-sync';
+            forms[0].appendChild(hiddenProxy);
+        }
+
+        // Synchroniser la valeur proxy au submit
+        forms[0].onsubmit = function() {
+            var proxySync = forms[0].querySelector('.proxy-sync');
+            if (proxySync) {
+                proxySync.value = proxyInput.value;
+            }
+        };
+
+        // Ajouter bouton Sauvegarder si pas deja present
+        var actionsTd = row.querySelector('.actions');
+        if (!actionsTd.querySelector('.btn-save')) {
+            var saveBtn = document.createElement('button');
+            saveBtn.type = 'button';
+            saveBtn.className = 'btn btn-sm btn-success btn-save';
+            saveBtn.textContent = 'Sauvegarder';
+            saveBtn.onclick = function() {
+                var proxySync = forms[0].querySelector('.proxy-sync');
+                if (proxySync) {
+                    proxySync.value = proxyInput.value;
+                }
+                forms[0].submit();
+            };
+            actionsTd.insertBefore(saveBtn, actionsTd.firstChild);
+        }
+    }
+}
+</script>
+{% endblock %}

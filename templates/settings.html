@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Configuration{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Configuration</h1>
+</div>
+
+{% if running %}
+<div class="flash flash-warning">
+    Le voting est en cours. Les modifications prendront effet au prochain redemarrage.
+</div>
+{% endif %}
+
+<form method="POST" action="{{ url_for('save_settings') }}">
+
+    <!-- Parametres navigateur -->
+    <div class="card">
+        <h3>Navigateur</h3>
+        <div class="form-row">
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="headless" {{ 'checked' if config.get('headless', True) }}>
+                    Mode headless (invisible)
+                </label>
+                <small class="help-text">Decocher pour voir le navigateur (debug)</small>
+            </div>
+            <div class="form-group">
+                <label for="slow_mo">Slow motion (ms)</label>
+                <input type="number" id="slow_mo" name="slow_mo" value="{{ config.get('slow_mo', 0) }}" min="0" step="100">
+                <small class="help-text">0 en production, 500+ pour debug</small>
+            </div>
+            <div class="form-group">
+                <label for="log_level">Niveau de log</label>
+                <select id="log_level" name="log_level">
+                    {% for level in ['DEBUG', 'INFO', 'WARNING', 'ERROR'] %}
+                    <option value="{{ level }}" {{ 'selected' if config.get('log_level', 'INFO') == level }}>{{ level }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sites de vote -->
+    {% set sites = config.get('sites', {}) %}
+
+    <div class="card">
+        <h3>serveur-minecraft-vote.fr</h3>
+        <small class="help-text site-desc">Necessite un clic sur le bouton "Voter"</small>
+        {% set smv = sites.get('serveur_minecraft_vote', {}) %}
+        <div class="form-row">
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="serveur_minecraft_vote_enabled" {{ 'checked' if smv.get('enabled', True) }}>
+                    Active
+                </label>
+            </div>
+            <div class="form-group">
+                <label>Intervalle (min)</label>
+                <input type="number" name="serveur_minecraft_vote_interval" value="{{ smv.get('interval_minutes', 90) }}" min="1">
+            </div>
+            <div class="form-group">
+                <label>Delai aleatoire max (min)</label>
+                <input type="number" name="serveur_minecraft_vote_delay" value="{{ smv.get('random_delay_max', 0) }}" min="0">
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>serveur-prive.net</h3>
+        <small class="help-text site-desc">Vote comptabilise au chargement de la page</small>
+        {% set sp = sites.get('serveur_prive', {}) %}
+        <div class="form-row">
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="serveur_prive_enabled" {{ 'checked' if sp.get('enabled', True) }}>
+                    Active
+                </label>
+            </div>
+            <div class="form-group">
+                <label>Intervalle (min)</label>
+                <input type="number" name="serveur_prive_interval" value="{{ sp.get('interval_minutes', 90) }}" min="1">
+            </div>
+            <div class="form-group">
+                <label>Delai aleatoire max (min)</label>
+                <input type="number" name="serveur_prive_delay" value="{{ sp.get('random_delay_max', 0) }}" min="0">
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>serveur-minecraft.com</h3>
+        <small class="help-text site-desc">Vote comptabilise au chargement de la page</small>
+        {% set sm = sites.get('serveur_minecraft', {}) %}
+        <div class="form-row">
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="serveur_minecraft_enabled" {{ 'checked' if sm.get('enabled', True) }}>
+                    Active
+                </label>
+            </div>
+            <div class="form-group">
+                <label>Intervalle (min)</label>
+                <input type="number" name="serveur_minecraft_interval" value="{{ sm.get('interval_minutes', 180) }}" min="1">
+            </div>
+            <div class="form-group">
+                <label>Delai aleatoire max (min)</label>
+                <input type="number" name="serveur_minecraft_delay" value="{{ sm.get('random_delay_max', 0) }}" min="0">
+            </div>
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-success">Sauvegarder</button>
+    </div>
+</form>
+{% endblock %}
