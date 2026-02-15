@@ -72,7 +72,10 @@ async def find_working_proxies(
     count: int = 3,
     api_url: str = PROXYSCRAPE_API,
 ) -> list[dict]:
-    """Récupère et teste des proxies, retourne les `count` meilleurs.
+    """Récupère et teste des proxies, retourne les `count` premiers fonctionnels.
+
+    Teste par lots et s'arrête dès que `count` proxies fonctionnels sont trouvés,
+    au lieu de tester systématiquement tous les proxies.
 
     Retourne une liste de dicts : [{"url": "http://ip:port", "latency_ms": 123}, ...]
     """
@@ -80,35 +83,45 @@ async def find_working_proxies(
     if not raw_proxies:
         return []
 
-    logger.info("Test de %d proxies en cours (max %d en parallèle)...", len(raw_proxies), MAX_CONCURRENT_TESTS)
+    # Taille de lot : au moins count * 3 pour avoir de la marge, plafonné au max concurrent
+    batch_size = min(max(count * 3, 5), MAX_CONCURRENT_TESTS)
+    logger.info(
+        "Recherche de %d proxy(s) fonctionnel(s) parmi %d (lots de %d)...",
+        count, len(raw_proxies), batch_size,
+    )
 
-    # Tester en parallèle avec un semaphore pour limiter la concurrence
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_TESTS)
-    working = []
+    working: list[dict] = []
+    tested = 0
 
-    async def _test_with_limit(proxy: str):
-        async with semaphore:
-            return await test_proxy(proxy)
+    for i in range(0, len(raw_proxies), batch_size):
+        if len(working) >= count:
+            break
 
-    results = await asyncio.gather(*[_test_with_limit(p) for p in raw_proxies])
+        batch = raw_proxies[i : i + batch_size]
+        tested += len(batch)
+        results = await asyncio.gather(*[test_proxy(p) for p in batch])
 
-    for proxy_url, success, latency in results:
-        if success:
-            working.append({"url": proxy_url, "latency_ms": round(latency, 1)})
+        for proxy_url, success, latency in results:
+            if success:
+                working.append({"url": proxy_url, "latency_ms": round(latency, 1)})
+
+        if len(working) >= count:
+            break
 
     # Trier par latence (les plus rapides d'abord)
     working.sort(key=lambda p: p["latency_ms"])
 
-    logger.info(
-        "%d/%d proxies fonctionnels (meilleur: %s en %.0fms)" if working else "%d/%d proxies fonctionnels",
-        len(working),
-        len(raw_proxies),
-        *(
-            (working[0]["url"], working[0]["latency_ms"])
-            if working
-            else ()
-        ),
-    )
+    if working:
+        logger.info(
+            "%d proxy(s) fonctionnel(s) trouvé(s) après test de %d/%d (meilleur: %s en %.0fms)",
+            len(working), tested, len(raw_proxies),
+            working[0]["url"], working[0]["latency_ms"],
+        )
+    else:
+        logger.info(
+            "0/%d proxies fonctionnels après test de %d",
+            len(raw_proxies), tested,
+        )
 
     return working[:count]
 
