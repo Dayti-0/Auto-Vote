@@ -2,7 +2,7 @@ import logging
 
 from playwright.async_api import Page
 
-from browser import human_delay
+from browser import human_delay, handle_cloudflare_challenge
 from voters.base import BaseVoter
 
 logger = logging.getLogger("auto-voter")
@@ -29,7 +29,23 @@ class ServeurMinecraftVoteVoter(BaseVoter):
             except Exception:
                 await page.wait_for_load_state("domcontentloaded", timeout=int(10000 * self.timeout_factor))
 
-            # 2. Remplir le champ pseudo si visible (pré-rempli via ?pseudo= dans l'URL)
+            # 2. Vérifier si Cloudflare bloque encore (si le challenge dans base.py n'a pas suffi)
+            try:
+                title = await page.title()
+                if "just a moment" in title.lower():
+                    logger.warning(
+                        "%s Page Cloudflare toujours active après le handler initial, retry...",
+                        self.log_prefix,
+                    )
+                    resolved = await handle_cloudflare_challenge(page, log_prefix=self.log_prefix)
+                    if not resolved:
+                        raise Exception("Challenge Cloudflare non résolu sur serveur-minecraft-vote.fr")
+            except Exception as e:
+                if "cloudflare" in str(e).lower():
+                    raise
+                logger.debug("%s Vérification titre échouée: %s", self.log_prefix, e)
+
+            # 3. Remplir le champ pseudo si visible (pré-rempli via ?pseudo= dans l'URL)
             logger.debug("%s Recherche du champ pseudo sur le site externe", self.log_prefix)
             pseudo_input = page.locator("#pseudo")
             try:
@@ -45,7 +61,7 @@ class ServeurMinecraftVoteVoter(BaseVoter):
             except Exception:
                 logger.debug("%s Champ pseudo non trouvé ou déjà rempli", self.log_prefix)
 
-            # 3. Cliquer sur le bouton de vote (#vote-action)
+            # 4. Cliquer sur le bouton de vote (#vote-action)
             logger.debug("%s Recherche du bouton de vote (#vote-action)", self.log_prefix)
             vote_button = page.locator("#vote-action")
             try:
@@ -64,7 +80,7 @@ class ServeurMinecraftVoteVoter(BaseVoter):
             await vote_button.click()
             logger.debug("%s Bouton de vote cliqué", self.log_prefix)
 
-            # 4. Vérifier la réponse via les messages toast
+            # 5. Vérifier la réponse via les messages toast
             await human_delay(1.0, 2.0)
             toast = page.locator(".toast-container")
             try:
@@ -83,7 +99,7 @@ class ServeurMinecraftVoteVoter(BaseVoter):
             except Exception:
                 logger.debug("%s Pas de toast détecté, vérification alternative", self.log_prefix)
 
-            # 5. Fallback : chercher un message de confirmation dans la page
+            # 6. Fallback : chercher un message de confirmation dans la page
             try:
                 confirmation = page.locator(
                     "text=/[Ff]élicitation|[Vv]ote.*enregistr|[Vv]ote.*comptabilis|[Mm]erci|[Vv]ote.*réussi/"
@@ -93,7 +109,7 @@ class ServeurMinecraftVoteVoter(BaseVoter):
             except Exception:
                 logger.debug("%s Pas de confirmation explicite, le vote a probablement été envoyé", self.log_prefix)
 
-            # 6. Délai final pour s'assurer que le vote est bien enregistré côté serveur
+            # 7. Délai final pour s'assurer que le vote est bien enregistré côté serveur
             await human_delay(2.0, 4.0)
             return True
 
