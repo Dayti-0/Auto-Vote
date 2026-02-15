@@ -89,6 +89,31 @@ class BrowserManager:
             raise RuntimeError(f"Aucun contexte navigateur pour le pseudo '{pseudo}'")
         return await context.new_page()
 
+    async def check_ip(self, pseudo: str) -> str | None:
+        """Vérifie l'IP visible du contexte d'un compte via ipify.
+
+        Retourne l'IP en texte ou None en cas d'erreur.
+        """
+        page = None
+        try:
+            page = await self.new_page(pseudo)
+            await page.goto(
+                "https://api.ipify.org",
+                wait_until="domcontentloaded",
+                timeout=15000,
+            )
+            ip_text = (await page.inner_text("body")).strip()
+            return ip_text
+        except Exception as e:
+            logger.debug("[%s] Impossible de vérifier l'IP: %s", pseudo, e)
+            return None
+        finally:
+            if page and not page.is_closed():
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+
     async def close(self):
         """Ferme le navigateur proprement."""
         logger.info("Fermeture du navigateur")
