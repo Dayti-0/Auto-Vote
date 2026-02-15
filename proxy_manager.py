@@ -6,18 +6,20 @@ import aiohttp
 
 logger = logging.getLogger("auto-voter")
 
-# API ProxyScrape — proxies gratuits français (HTTP/SOCKS4/SOCKS5)
+# API ProxyScrape — proxies gratuits (HTTP/SOCKS4/SOCKS5)
+# Pas de filtre country pour maximiser le nombre de proxies disponibles
 PROXYSCRAPE_API = (
     "https://api.proxyscrape.com/v4/free-proxy-list/get"
     "?request=display_proxies"
-    "&country=fr"
     "&proxy_format=protocolipport"
     "&format=text"
     "&timeout=20000"
 )
 
-# URL légère pour tester la connectivité d'un proxy (Google 204 = rapide et fiable)
-TEST_URL = "http://www.google.com/generate_204"
+# URL HTTPS pour tester la connectivité d'un proxy (HTTPS obligatoire car les sites
+# de vote utilisent HTTPS — un proxy qui ne supporte que HTTP échouera avec
+# ERR_TUNNEL_CONNECTION_FAILED sur les vrais sites)
+TEST_URL = "https://www.google.com/generate_204"
 # Timeout pour le test de chaque proxy (secondes)
 TEST_TIMEOUT = 10
 # Nombre max de proxies à tester en parallèle

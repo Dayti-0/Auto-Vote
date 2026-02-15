@@ -24,6 +24,7 @@ class BaseVoter(ABC):
         self.vote_count: int = 0
         self.consecutive_failures: int = 0
         self.next_vote_available: datetime | None = None
+        self.last_error: str | None = None
 
     @property
     def log_prefix(self) -> str:
@@ -121,15 +122,13 @@ class BaseVoter(ABC):
                                 self.next_vote_available = datetime.fromtimestamp(
                                     vote_time_ms / 1000
                                 )
-                                logger.warning(
+                                logger.info(
                                     "%s Vote en cooldown, disponible dans %.0f min (à %s)",
                                     self.log_prefix,
                                     remaining_min,
                                     self.next_vote_available.strftime("%H:%M"),
                                 )
-                                self.record_failure(
-                                    f"Cooldown ({remaining_min:.0f} min restantes)"
-                                )
+                                # Pas de record_failure : le cooldown est un comportement normal
                                 return False
                         except ValueError:
                             pass
@@ -197,6 +196,7 @@ class BaseVoter(ABC):
         self.vote_count += 1
         self.consecutive_failures = 0
         self.last_vote_time = datetime.now()
+        self.last_error = None
         logger.info(
             "%s Vote #%d réussi",
             self.log_prefix, self.vote_count,
@@ -206,6 +206,7 @@ class BaseVoter(ABC):
         """Enregistre un échec de vote."""
         self.consecutive_failures += 1
         self.last_vote_time = datetime.now()
+        self.last_error = error
         if self.consecutive_failures >= 3:
             logger.warning(
                 "%s %d échecs consécutifs ! Dernière erreur: %s",
