@@ -23,6 +23,11 @@ class BaseVoter(ABC):
         self.vote_count: int = 0
         self.consecutive_failures: int = 0
 
+    @property
+    def log_prefix(self) -> str:
+        """Préfixe pour les logs : [pseudo][site]."""
+        return f"[{self.pseudo}][{self.name}]"
+
     # Sous-classes peuvent mettre quick_close = True pour fermer la page externe immédiatement
     quick_close = False
 
@@ -30,7 +35,7 @@ class BaseVoter(ABC):
         """Effectue le vote en passant par survivalworld.fr/vote."""
         try:
             # 1. Naviguer vers survivalworld.fr/vote
-            logger.debug("[%s] Navigation vers %s", self.name, SURVIVALWORLD_VOTE_URL)
+            logger.debug("%s Navigation vers %s", self.log_prefix, SURVIVALWORLD_VOTE_URL)
             await page.goto(SURVIVALWORLD_VOTE_URL, wait_until="domcontentloaded")
             await human_delay(0.3, 0.8)
 
@@ -42,10 +47,10 @@ class BaseVoter(ABC):
                 ).first
                 await cookie_btn.wait_for(state="visible", timeout=2000)
                 await cookie_btn.click()
-                logger.debug("[%s] Popup de cookies acceptée", self.name)
+                logger.debug("%s Popup de cookies acceptée", self.log_prefix)
                 await human_delay(0.3, 0.5)
             except Exception:
-                logger.debug("[%s] Pas de popup de cookies détectée", self.name)
+                logger.debug("%s Pas de popup de cookies détectée", self.log_prefix)
 
             # 2. Entrer le pseudo si le champ est visible (pas connecté)
             try:
@@ -63,12 +68,12 @@ class BaseVoter(ABC):
                         "a:has-text('Continuer')"
                     ).first
                     await continuer_btn.click()
-                    logger.debug("[%s] Pseudo '%s' saisi et Continuer cliqué", self.name, self.pseudo)
+                    logger.debug("%s Pseudo '%s' saisi et Continuer cliqué", self.log_prefix, self.pseudo)
                     await human_delay(0.5, 1.0)
                 else:
-                    logger.debug("[%s] Champ pseudo non visible, session active", self.name)
+                    logger.debug("%s Champ pseudo non visible, session active", self.log_prefix)
             except Exception:
-                logger.debug("[%s] Champ pseudo non trouvé, session peut-être active", self.name)
+                logger.debug("%s Champ pseudo non trouvé, session peut-être active", self.log_prefix)
 
             # 4. Attendre le chargement complet de la page
             await page.wait_for_load_state("domcontentloaded")
@@ -80,13 +85,13 @@ class BaseVoter(ABC):
                 await vote_link.wait_for(state="visible", timeout=10000)
             except Exception:
                 logger.error(
-                    "[%s] Lien de vote introuvable (pattern: %s)",
-                    self.name, self.link_pattern,
+                    "%s Lien de vote introuvable (pattern: %s)",
+                    self.log_prefix, self.link_pattern,
                 )
                 self.record_failure(f"Lien de vote introuvable (pattern: {self.link_pattern})")
                 return False
 
-            logger.debug("[%s] Lien de vote trouvé, clic en cours...", self.name)
+            logger.debug("%s Lien de vote trouvé, clic en cours...", self.log_prefix)
             await human_delay(0.3, 0.6)
 
             # 6. Cliquer sur le lien de vote (ouvre un nouvel onglet)
@@ -98,7 +103,7 @@ class BaseVoter(ABC):
 
             if self.quick_close:
                 # Vote comptabilisé au chargement — fermer immédiatement
-                logger.debug("[%s] Page chargée, fermeture immédiate", self.name)
+                logger.debug("%s Page chargée, fermeture immédiate", self.log_prefix)
                 success = True
                 if not new_page.is_closed():
                     await new_page.close()
@@ -106,7 +111,7 @@ class BaseVoter(ABC):
                 await human_delay(0.3, 0.6)
 
                 # 7. Effectuer le vote sur le site externe
-                logger.debug("[%s] Gestion du vote sur le site externe...", self.name)
+                logger.debug("%s Gestion du vote sur le site externe...", self.log_prefix)
                 success = await self._handle_external_vote(new_page)
 
                 # 8. Fermer l'onglet externe
@@ -121,9 +126,9 @@ class BaseVoter(ABC):
                 ).first
                 await fermer_btn.wait_for(state="visible", timeout=3000)
                 await fermer_btn.click()
-                logger.debug("[%s] Popup de confirmation fermée", self.name)
+                logger.debug("%s Popup de confirmation fermée", self.log_prefix)
             except Exception:
-                logger.debug("[%s] Pas de popup de confirmation détectée", self.name)
+                logger.debug("%s Pas de popup de confirmation détectée", self.log_prefix)
 
             if success:
                 self.record_success()
@@ -147,8 +152,8 @@ class BaseVoter(ABC):
         self.consecutive_failures = 0
         self.last_vote_time = datetime.now()
         logger.info(
-            "[%s] Vote #%d réussi",
-            self.name, self.vote_count,
+            "%s Vote #%d réussi",
+            self.log_prefix, self.vote_count,
         )
 
     def record_failure(self, error: str):
@@ -157,11 +162,11 @@ class BaseVoter(ABC):
         self.last_vote_time = datetime.now()
         if self.consecutive_failures >= 3:
             logger.warning(
-                "[%s] %d échecs consécutifs ! Dernière erreur: %s",
-                self.name, self.consecutive_failures, error,
+                "%s %d échecs consécutifs ! Dernière erreur: %s",
+                self.log_prefix, self.consecutive_failures, error,
             )
         else:
             logger.error(
-                "[%s] Échec du vote (%s)",
-                self.name, error,
+                "%s Échec du vote (%s)",
+                self.log_prefix, error,
             )

@@ -7,7 +7,7 @@ import yaml
 
 from browser import BrowserManager
 from logger_setup import setup_logger
-from scheduler import VoteScheduler
+from scheduler import VoteScheduler, AccountVoters
 from voters import (
     ServeurMinecraftVoteVoter,
     ServeurPriveVoter,
@@ -21,7 +21,25 @@ def load_config(path: str = "config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-def print_banner(pseudo: str, headless: bool, sites_config: dict):
+def parse_accounts(config: dict) -> list[dict]:
+    """Parse les comptes depuis la config (supporte l'ancien et le nouveau format)."""
+    # Nouveau format : liste accounts
+    if "accounts" in config:
+        accounts = config["accounts"]
+        if not accounts or not isinstance(accounts, list):
+            print("ERREUR: 'accounts' doit être une liste non vide dans config.yaml")
+            sys.exit(1)
+        return accounts
+
+    # Ancien format : pseudo unique (rétrocompatibilité)
+    pseudo = config.get("pseudo", "CHANGE_ME")
+    if pseudo == "CHANGE_ME":
+        print("ERREUR: Veuillez configurer votre pseudo dans config.yaml")
+        sys.exit(1)
+    return [{"pseudo": pseudo, "proxy": None}]
+
+
+def print_banner(accounts: list[dict], headless: bool, sites_config: dict):
     """Affiche la bannière de démarrage."""
     mode = "headless" if headless else "visible"
     smv = sites_config.get("serveur_minecraft_vote", {})
@@ -31,12 +49,27 @@ def print_banner(pseudo: str, headless: bool, sites_config: dict):
     lines = [
         "",
         "══════════════════════════════════════════",
-        "     Minecraft Auto-Voter v1.0",
+        "     Minecraft Auto-Voter v1.1",
         "     Serveur: SurvivalWorld",
-        f"     Pseudo: {pseudo}",
+        f"     Comptes: {len(accounts)}",
         "══════════════════════════════════════════",
-        "  Sites actifs:",
     ]
+
+    # Afficher les comptes
+    lines.append("  Comptes actifs:")
+    for acc in accounts:
+        pseudo = acc["pseudo"]
+        proxy = acc.get("proxy")
+        if proxy:
+            # Masquer le mot de passe dans l'affichage
+            from browser import _mask_proxy
+            proxy_display = _mask_proxy(proxy)
+            lines.append(f"  [OK] {pseudo} (proxy: {proxy_display})")
+        else:
+            lines.append(f"  [OK] {pseudo} (IP locale)")
+
+    lines.append("══════════════════════════════════════════")
+    lines.append("  Sites actifs:")
 
     if smv.get("enabled", True):
         lines.append(f"  [OK] serveur-minecraft-vote.fr ({smv.get('interval_minutes', 90)}min)")
@@ -63,7 +96,7 @@ def print_banner(pseudo: str, headless: bool, sites_config: dict):
 
 
 def build_voters(pseudo: str, sites_config: dict) -> list:
-    """Crée les instances de voters selon la configuration."""
+    """Crée les instances de voters pour un pseudo selon la configuration."""
     voters = []
 
     smv = sites_config.get("serveur_minecraft_vote", {})
@@ -100,10 +133,15 @@ async def main():
     # Charger la config
     config = load_config()
 
-    pseudo = config.get("pseudo", "CHANGE_ME")
-    if pseudo == "CHANGE_ME":
-        print("ERREUR: Veuillez configurer votre pseudo dans config.yaml")
-        sys.exit(1)
+    # Parser les comptes
+    accounts = parse_accounts(config)
+
+    # Valider les pseudos
+    for acc in accounts:
+        pseudo = acc.get("pseudo", "CHANGE_ME")
+        if pseudo == "CHANGE_ME":
+            print("ERREUR: Un des comptes a encore le pseudo 'CHANGE_ME' dans config.yaml")
+            sys.exit(1)
 
     headless = config.get("headless", True)
     slow_mo = config.get("slow_mo", 0)
@@ -116,22 +154,37 @@ async def main():
     )
 
     # Bannière
-    print_banner(pseudo, headless, sites_config)
+    print_banner(accounts, headless, sites_config)
 
-    # Créer les voters
-    voters = build_voters(pseudo, sites_config)
-    if not voters:
+    # Construire les groupes de voters par compte
+    account_groups = []
+    for acc in accounts:
+        pseudo = acc["pseudo"]
+        proxy = acc.get("proxy")
+        voters = build_voters(pseudo, sites_config)
+        if voters:
+            account_groups.append(AccountVoters(pseudo=pseudo, proxy=proxy, voters=voters))
+
+    if not account_groups:
         logger.error("Aucun site de vote actif ! Vérifiez config.yaml")
         sys.exit(1)
 
-    logger.info("Démarrage avec %d site(s) actif(s) pour le pseudo '%s'", len(voters), pseudo)
+    total_voters = sum(len(ag.voters) for ag in account_groups)
+    logger.info(
+        "Démarrage avec %d compte(s) et %d tâche(s) de vote",
+        len(account_groups), total_voters,
+    )
 
     # Navigateur
     browser = BrowserManager(headless=headless, slow_mo=slow_mo)
     await browser.start()
 
+    # Créer un contexte isolé par compte (avec proxy si configuré)
+    for ag in account_groups:
+        await browser.create_context(ag.pseudo, ag.proxy)
+
     # Scheduler
-    scheduler = VoteScheduler(browser, voters)
+    scheduler = VoteScheduler(browser, account_groups)
 
     # Gestion CTRL+C (cross-platform)
     loop = asyncio.get_running_loop()
