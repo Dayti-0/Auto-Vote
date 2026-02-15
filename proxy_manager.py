@@ -16,14 +16,37 @@ PROXYSCRAPE_API = (
     "&timeout=20000"
 )
 
-# URL HTTPS pour tester la connectivité d'un proxy (HTTPS obligatoire car les sites
-# de vote utilisent HTTPS — un proxy qui ne supporte que HTTP échouera avec
-# ERR_TUNNEL_CONNECTION_FAILED sur les vrais sites)
-TEST_URL = "https://www.google.com/generate_204"
+# URL pour vérifier l'IP visible du proxy (retourne l'IP en texte brut)
+IP_CHECK_URL = "https://api.ipify.org"
+# URL cible pour vérifier que le proxy peut réellement atteindre survivalworld.fr
+TARGET_TEST_URL = "https://survivalworld.fr/vote"
 # Timeout pour le test de chaque proxy (secondes)
 TEST_TIMEOUT = 10
 # Nombre max de proxies à tester en parallèle
 MAX_CONCURRENT_TESTS = 20
+
+# Cache de l'IP locale (détectée une seule fois)
+_local_ip: str | None = None
+
+
+async def get_local_ip() -> str | None:
+    """Détecte l'IP publique locale (sans proxy)."""
+    global _local_ip
+    if _local_ip is not None:
+        return _local_ip
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                IP_CHECK_URL,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status == 200:
+                    _local_ip = (await resp.text()).strip()
+                    logger.info("IP locale détectée: %s", _local_ip)
+                    return _local_ip
+    except Exception as e:
+        logger.warning("Impossible de détecter l'IP locale: %s", e)
+    return None
 
 
 async def fetch_proxy_list(api_url: str = PROXYSCRAPE_API) -> list[str]:
@@ -48,45 +71,89 @@ async def fetch_proxy_list(api_url: str = PROXYSCRAPE_API) -> list[str]:
     return proxies
 
 
-async def test_proxy(proxy_url: str, test_url: str = TEST_URL) -> tuple[str, bool, float]:
-    """Teste un proxy en faisant une requête HTTP.
+async def test_proxy(
+    proxy_url: str,
+    local_ip: str | None = None,
+) -> tuple[str, bool, float, str | None]:
+    """Teste un proxy en 2 étapes :
 
-    Retourne (proxy_url, success, latency_ms).
+    1. Vérifie l'IP visible via ipify (rejette les proxies transparents)
+    2. Vérifie que le proxy peut atteindre survivalworld.fr
+
+    Retourne (proxy_url, success, latency_ms, proxy_ip).
     """
     start = time.monotonic()
+
+    # Étape 1 : vérifier l'IP visible du proxy
+    proxy_ip = None
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                test_url,
+                IP_CHECK_URL,
                 proxy=proxy_url,
                 timeout=aiohttp.ClientTimeout(total=TEST_TIMEOUT),
                 ssl=False,
             ) as resp:
-                if resp.status in (200, 204):
-                    latency = (time.monotonic() - start) * 1000
-                    return proxy_url, True, latency
-                return proxy_url, False, 0
+                if resp.status == 200:
+                    proxy_ip = (await resp.text()).strip()
+                else:
+                    return proxy_url, False, 0, None
     except Exception:
-        return proxy_url, False, 0
+        return proxy_url, False, 0, None
+
+    # Rejeter les proxies transparents (même IP que locale)
+    if local_ip and proxy_ip == local_ip:
+        logger.debug("Proxy %s transparent (même IP: %s), rejeté", proxy_url, proxy_ip)
+        return proxy_url, False, 0, proxy_ip
+
+    # Étape 2 : vérifier que le proxy peut atteindre le site cible
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                TARGET_TEST_URL,
+                proxy=proxy_url,
+                timeout=aiohttp.ClientTimeout(total=TEST_TIMEOUT),
+                ssl=False,
+            ) as resp:
+                # On accepte tout code HTTP (200, 301, 302, etc.)
+                # L'important c'est que la connexion aboutisse
+                latency = (time.monotonic() - start) * 1000
+                return proxy_url, True, latency, proxy_ip
+    except Exception:
+        return proxy_url, False, 0, proxy_ip
 
 
 async def find_working_proxies(
     count: int = 3,
     api_url: str = PROXYSCRAPE_API,
+    local_ip: str | None = None,
+    exclude_ips: list[str] | None = None,
 ) -> list[dict]:
     """Récupère et teste des proxies, retourne les `count` premiers fonctionnels.
 
-    Teste par lots et s'arrête dès que `count` proxies fonctionnels sont trouvés,
-    au lieu de tester systématiquement tous les proxies.
+    Teste par lots et s'arrête dès que `count` proxies fonctionnels sont trouvés.
+    Rejette les proxies transparents (même IP que locale) et les IPs déjà utilisées.
 
-    Retourne une liste de dicts : [{"url": "http://ip:port", "latency_ms": 123}, ...]
+    Retourne une liste de dicts :
+    [{"url": "http://ip:port", "latency_ms": 123, "ip": "1.2.3.4"}, ...]
     """
     raw_proxies = await fetch_proxy_list(api_url)
     if not raw_proxies:
         return []
 
-    # Taille de lot : au moins count * 3 pour avoir de la marge, plafonné au max concurrent
-    batch_size = min(max(count * 3, 5), MAX_CONCURRENT_TESTS)
+    # Détecter l'IP locale si pas fournie
+    if local_ip is None:
+        local_ip = await get_local_ip()
+
+    # IPs à exclure (IP locale + proxies déjà assignés à d'autres comptes)
+    excluded = set()
+    if local_ip:
+        excluded.add(local_ip)
+    if exclude_ips:
+        excluded.update(exclude_ips)
+
+    # Lots plus gros pour compenser le double test (IP + site cible)
+    batch_size = min(max(count * 5, 10), MAX_CONCURRENT_TESTS)
     logger.info(
         "Recherche de %d proxy(s) fonctionnel(s) parmi %d (lots de %d)...",
         count, len(raw_proxies), batch_size,
@@ -101,11 +168,19 @@ async def find_working_proxies(
 
         batch = raw_proxies[i : i + batch_size]
         tested += len(batch)
-        results = await asyncio.gather(*[test_proxy(p) for p in batch])
+        results = await asyncio.gather(
+            *[test_proxy(p, local_ip) for p in batch]
+        )
 
-        for proxy_url, success, latency in results:
-            if success:
-                working.append({"url": proxy_url, "latency_ms": round(latency, 1)})
+        for proxy_url, success, latency, proxy_ip in results:
+            if success and proxy_ip and proxy_ip not in excluded:
+                working.append({
+                    "url": proxy_url,
+                    "latency_ms": round(latency, 1),
+                    "ip": proxy_ip,
+                })
+                # Empêcher d'assigner la même IP à plusieurs comptes
+                excluded.add(proxy_ip)
 
         if len(working) >= count:
             break
@@ -115,13 +190,13 @@ async def find_working_proxies(
 
     if working:
         logger.info(
-            "%d proxy(s) fonctionnel(s) trouvé(s) après test de %d/%d (meilleur: %s en %.0fms)",
+            "%d proxy(s) fonctionnel(s) trouvé(s) après test de %d/%d (meilleur: %s [%s] en %.0fms)",
             len(working), tested, len(raw_proxies),
-            working[0]["url"], working[0]["latency_ms"],
+            working[0]["url"], working[0]["ip"], working[0]["latency_ms"],
         )
     else:
-        logger.info(
-            "0/%d proxies fonctionnels après test de %d",
+        logger.warning(
+            "0/%d proxies fonctionnels après test de %d (tous échoués ou transparents)",
             len(raw_proxies), tested,
         )
 
@@ -139,7 +214,19 @@ async def assign_auto_proxies(accounts: list[dict]) -> list[dict]:
 
     logger.info("%d compte(s) nécessitent un proxy automatique", len(auto_accounts))
 
-    working = await find_working_proxies(count=len(auto_accounts))
+    # Détecter l'IP locale d'abord
+    local_ip = await get_local_ip()
+
+    # Collecter les IPs des proxies manuels déjà configurés
+    exclude_ips = []
+    if local_ip:
+        exclude_ips.append(local_ip)
+
+    working = await find_working_proxies(
+        count=len(auto_accounts),
+        local_ip=local_ip,
+        exclude_ips=exclude_ips,
+    )
 
     if not working:
         logger.warning(
@@ -157,9 +244,11 @@ async def assign_auto_proxies(accounts: list[dict]) -> list[dict]:
             acc["proxy"] = proxy_info["url"]
             acc["_proxy_auto"] = True
             acc["_proxy_latency"] = proxy_info["latency_ms"]
+            acc["_proxy_ip"] = proxy_info["ip"]
             logger.info(
-                "[%s] Proxy auto assigné: %s (latence: %.0fms)",
-                acc["pseudo"], proxy_info["url"], proxy_info["latency_ms"],
+                "[%s] Proxy auto assigné: %s (IP: %s, latence: %.0fms)",
+                acc["pseudo"], proxy_info["url"], proxy_info["ip"],
+                proxy_info["latency_ms"],
             )
         else:
             logger.warning(

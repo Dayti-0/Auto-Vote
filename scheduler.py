@@ -17,6 +17,7 @@ _PROXY_ERROR_KEYWORDS = [
     "ERR_CONNECTION_TIMED_OUT",
     "ERR_SOCKS_CONNECTION_FAILED",
     "ERR_PROXY_AUTH",
+    "ERR_EMPTY_RESPONSE",
 ]
 
 
@@ -49,6 +50,8 @@ class VoteScheduler:
         self._vote_locks: dict[str, asyncio.Lock] = {
             ag.pseudo: asyncio.Lock() for ag in account_groups
         }
+        # Comptes dont l'IP proxy a déjà été vérifiée (évite de vérifier 3x)
+        self._ip_verified: set[str] = set()
 
     async def start(self):
         """Lance les boucles de vote en parallèle pour chaque voter de chaque compte."""
@@ -74,6 +77,11 @@ class VoteScheduler:
 
     async def _vote_loop(self, account: AccountVoters, voter: BaseVoter):
         """Boucle de vote pour un site d'un compte : vote immédiat puis intervalles."""
+        # Vérifier l'IP du proxy avant le premier vote (une seule fois par compte)
+        if account.proxy and account.pseudo not in self._ip_verified:
+            self._ip_verified.add(account.pseudo)
+            await self._verify_proxy_ip(account)
+
         # Vote immédiat au démarrage
         await self._execute_vote(account, voter)
 
@@ -155,21 +163,82 @@ class VoteScheduler:
                     except Exception:
                         pass
 
+    async def _verify_proxy_ip(self, account: AccountVoters):
+        """Vérifie que le proxy donne bien une IP différente de l'IP locale.
+
+        Si l'IP est identique (proxy transparent), tente une rotation.
+        Exécuté une seule fois par compte au démarrage de sa première boucle.
+        """
+        lock = self._vote_locks[account.pseudo]
+        async with lock:
+            try:
+                from proxy_manager import get_local_ip
+
+                local_ip = await get_local_ip()
+                proxy_ip = await self.browser.check_ip(account.pseudo)
+
+                if not proxy_ip:
+                    logger.warning(
+                        "[%s] Impossible de vérifier l'IP du proxy, rotation...",
+                        account.pseudo,
+                    )
+                    await self._rotate_proxy(account)
+                    return
+
+                if local_ip and proxy_ip == local_ip:
+                    logger.warning(
+                        "[%s] Proxy transparent détecté ! IP proxy = IP locale (%s), rotation...",
+                        account.pseudo, proxy_ip,
+                    )
+                    await self._rotate_proxy(account)
+                    # Re-vérifier après rotation
+                    new_ip = await self.browser.check_ip(account.pseudo)
+                    if new_ip and new_ip != local_ip:
+                        logger.info(
+                            "[%s] Nouvelle IP proxy vérifiée: %s (locale: %s)",
+                            account.pseudo, new_ip, local_ip,
+                        )
+                    elif new_ip:
+                        logger.error(
+                            "[%s] Proxy toujours transparent après rotation (IP: %s)",
+                            account.pseudo, new_ip,
+                        )
+                else:
+                    logger.info(
+                        "[%s] IP proxy vérifiée: %s (locale: %s)",
+                        account.pseudo, proxy_ip, local_ip or "inconnue",
+                    )
+            except Exception as e:
+                logger.warning("[%s] Erreur vérification IP: %s", account.pseudo, e)
+
     async def _rotate_proxy(self, account: AccountVoters):
         """Récupère un nouveau proxy frais et recrée le contexte navigateur."""
         try:
-            from proxy_manager import find_working_proxies
-            working = await find_working_proxies(count=1)
+            from proxy_manager import find_working_proxies, get_local_ip
+
+            local_ip = await get_local_ip()
+
+            # Collecter les IPs des autres comptes pour éviter les doublons
+            exclude_ips = []
+            if local_ip:
+                exclude_ips.append(local_ip)
+
+            working = await find_working_proxies(
+                count=1,
+                local_ip=local_ip,
+                exclude_ips=exclude_ips,
+            )
             if working:
                 new_proxy = working[0]["url"]
                 latency = working[0]["latency_ms"]
+                new_ip = working[0].get("ip", "?")
                 old_proxy = account.proxy
                 account.proxy = new_proxy
                 await self.browser.restart_context(account.pseudo, new_proxy)
                 if new_proxy != old_proxy:
                     logger.info(
-                        "[%s] Nouveau proxy: %s (latence: %.0fms)",
-                        account.pseudo, new_proxy, latency,
+                        "[%s] Nouveau proxy: %s (IP: %s, latence: %.0fms)",
+                        account.pseudo, new_proxy, new_ip, latency,
                     )
                 else:
                     logger.debug("[%s] Proxy inchangé: %s", account.pseudo, new_proxy)

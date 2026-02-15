@@ -40,7 +40,8 @@ def parse_accounts(config: dict) -> list[dict]:
     return [{"pseudo": pseudo, "proxy": None}]
 
 
-def print_banner(accounts: list[dict], headless: bool, sites_config: dict):
+def print_banner(accounts: list[dict], headless: bool, sites_config: dict,
+                 local_ip: str | None = None):
     """Affiche la bannière de démarrage."""
     mode = "headless" if headless else "visible"
     smv = sites_config.get("serveur_minecraft_vote", {})
@@ -67,12 +68,18 @@ def print_banner(accounts: list[dict], headless: bool, sites_config: dict):
             from browser import _mask_proxy
             proxy_display = _mask_proxy(proxy)
             latency = acc.get("_proxy_latency")
+            proxy_ip = acc.get("_proxy_ip")
+            parts = [f"proxy: {proxy_display}"]
+            if proxy_ip:
+                parts.append(f"IP: {proxy_ip}")
             if latency:
-                lines.append(f"  [OK] {pseudo} (proxy: {proxy_display} ~{latency:.0f}ms)")
-            else:
-                lines.append(f"  [OK] {pseudo} (proxy: {proxy_display})")
+                parts.append(f"~{latency:.0f}ms")
+            lines.append(f"  [OK] {pseudo} ({', '.join(parts)})")
         else:
-            lines.append(f"  [OK] {pseudo} (IP locale)")
+            if local_ip:
+                lines.append(f"  [OK] {pseudo} (IP locale: {local_ip})")
+            else:
+                lines.append(f"  [OK] {pseudo} (IP locale)")
 
     lines.append("══════════════════════════════════════════")
     lines.append("  Sites actifs:")
@@ -159,6 +166,10 @@ async def main():
         log_file=config.get("log_file", "logs/votes.log"),
     )
 
+    # Détecter l'IP locale (utile pour rejeter les proxies transparents)
+    from proxy_manager import get_local_ip
+    local_ip = await get_local_ip()
+
     # Résoudre les proxies automatiques (proxy: "auto")
     has_auto = any(acc.get("proxy") == "auto" for acc in accounts)
     if has_auto:
@@ -166,7 +177,7 @@ async def main():
         accounts = await assign_auto_proxies(accounts)
 
     # Bannière (après résolution des proxies pour afficher les IPs réelles)
-    print_banner(accounts, headless, sites_config)
+    print_banner(accounts, headless, sites_config, local_ip=local_ip)
 
     # Construire les groupes de voters par compte
     account_groups = []
