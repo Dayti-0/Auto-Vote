@@ -27,7 +27,7 @@ slow_mo: 0              # Millisecondes de délai entre chaque action (0 en prod
 # Configuration par site
 sites:
   serveur_minecraft_vote:
-    enabled: false        # Bloqué par Cloudflare avec proxy
+    enabled: true         # Automatiquement ignoré pour les comptes avec proxy
     interval_minutes: 90
     random_delay_max: 0   # 0 = vote dès que le cooldown expire
   serveur_prive:
