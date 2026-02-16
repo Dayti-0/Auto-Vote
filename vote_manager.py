@@ -38,15 +38,20 @@ def save_config(config: dict):
         yaml.dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
 
-def build_voters(pseudo: str, sites_config: dict) -> list:
+def build_voters(pseudo: str, sites_config: dict, proxy: str | None = None) -> list:
     voters = []
     smv = sites_config.get("serveur_minecraft_vote", {})
     if smv.get("enabled", True):
-        voters.append(ServeurMinecraftVoteVoter(
-            pseudo=pseudo,
-            interval_minutes=smv.get("interval_minutes", 90),
-            random_delay_max=smv.get("random_delay_max", 5),
-        ))
+        if proxy:
+            logger.info(
+                "[%s] serveur-minecraft-vote.fr ignoré (incompatible avec proxy)", pseudo,
+            )
+        else:
+            voters.append(ServeurMinecraftVoteVoter(
+                pseudo=pseudo,
+                interval_minutes=smv.get("interval_minutes", 90),
+                random_delay_max=smv.get("random_delay_max", 5),
+            ))
     sp = sites_config.get("serveur_prive", {})
     if sp.get("enabled", True):
         voters.append(ServeurPriveVoter(
@@ -191,7 +196,7 @@ class VoteManager:
             pseudo = acc["pseudo"]
             proxy = acc.get("proxy")
             is_auto = bool(acc.get("_proxy_auto"))
-            voters = build_voters(pseudo, sites_config)
+            voters = build_voters(pseudo, sites_config, proxy=proxy)
             if proxy:
                 for v in voters:
                     v.timeout_factor = 2.0

@@ -108,17 +108,27 @@ def print_banner(accounts: list[dict], headless: bool, sites_config: dict,
     print("\n".join(lines))
 
 
-def build_voters(pseudo: str, sites_config: dict) -> list:
-    """Crée les instances de voters pour un pseudo selon la configuration."""
+def build_voters(pseudo: str, sites_config: dict, proxy: str | None = None) -> list:
+    """Crée les instances de voters pour un pseudo selon la configuration.
+
+    Args:
+        proxy: Si défini, serveur-minecraft-vote.fr est ignoré (incompatible avec les proxies).
+    """
     voters = []
 
     smv = sites_config.get("serveur_minecraft_vote", {})
     if smv.get("enabled", True):
-        voters.append(ServeurMinecraftVoteVoter(
-            pseudo=pseudo,
-            interval_minutes=smv.get("interval_minutes", 90),
-            random_delay_max=smv.get("random_delay_max", 5),
-        ))
+        if proxy:
+            import logging
+            logging.getLogger("auto-voter").info(
+                "[%s] serveur-minecraft-vote.fr ignoré (incompatible avec proxy)", pseudo,
+            )
+        else:
+            voters.append(ServeurMinecraftVoteVoter(
+                pseudo=pseudo,
+                interval_minutes=smv.get("interval_minutes", 90),
+                random_delay_max=smv.get("random_delay_max", 5),
+            ))
 
     sp = sites_config.get("serveur_prive", {})
     if sp.get("enabled", True):
@@ -185,7 +195,7 @@ async def main():
         pseudo = acc["pseudo"]
         proxy = acc.get("proxy")
         is_auto = bool(acc.get("_proxy_auto"))
-        voters = build_voters(pseudo, sites_config)
+        voters = build_voters(pseudo, sites_config, proxy=proxy)
         # Timeouts plus longs pour les comptes via proxy (latence réseau)
         if proxy:
             for v in voters:
