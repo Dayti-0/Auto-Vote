@@ -206,11 +206,15 @@ class BaseVoter(ABC):
             await new_page.wait_for_load_state("domcontentloaded")
 
             if self.quick_close:
-                # Vote comptabilisé au chargement — attendre la popup "Fermer"
-                # sur survivalworld.fr AVANT de fermer l'onglet externe.
-                # Si on ferme/actualise trop tôt, le vote n'est pas pris en compte.
+                # Fermer l'onglet externe immédiatement (vote comptabilisé au chargement)
+                logger.debug("%s Page externe chargée, fermeture immédiate", self.log_prefix)
+                if not new_page.is_closed():
+                    await new_page.close()
+
+                # Attendre la popup "Fermer" sur survivalworld.fr
+                # NE PAS actualiser la page, sinon le vote n'est pas pris en compte
                 logger.debug(
-                    "%s Page externe chargée, attente de la popup de confirmation...",
+                    "%s Attente de la popup de confirmation sur survivalworld.fr...",
                     self.log_prefix,
                 )
                 try:
@@ -232,10 +236,6 @@ class BaseVoter(ABC):
                         self.log_prefix,
                     )
                     success = False
-
-                # Fermer l'onglet externe après la confirmation
-                if not new_page.is_closed():
-                    await new_page.close()
             else:
                 await human_delay(0.3, 0.6)
 
