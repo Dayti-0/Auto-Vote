@@ -206,9 +206,34 @@ class BaseVoter(ABC):
             await new_page.wait_for_load_state("domcontentloaded")
 
             if self.quick_close:
-                # Vote comptabilisé au chargement — fermer immédiatement
-                logger.debug("%s Page chargée, fermeture immédiate", self.log_prefix)
-                success = True
+                # Vote comptabilisé au chargement — attendre la popup "Fermer"
+                # sur survivalworld.fr AVANT de fermer l'onglet externe.
+                # Si on ferme/actualise trop tôt, le vote n'est pas pris en compte.
+                logger.debug(
+                    "%s Page externe chargée, attente de la popup de confirmation...",
+                    self.log_prefix,
+                )
+                try:
+                    fermer_btn = page.locator(
+                        "button:has-text('Fermer'), "
+                        "a:has-text('Fermer')"
+                    ).first
+                    await fermer_btn.wait_for(
+                        state="visible",
+                        timeout=int(30000 * self.timeout_factor),
+                    )
+                    await human_delay(0.3, 0.6)
+                    await fermer_btn.click()
+                    logger.debug("%s Popup de confirmation fermée", self.log_prefix)
+                    success = True
+                except Exception:
+                    logger.warning(
+                        "%s Popup 'Fermer' non détectée après 30s",
+                        self.log_prefix,
+                    )
+                    success = False
+
+                # Fermer l'onglet externe après la confirmation
                 if not new_page.is_closed():
                     await new_page.close()
             else:
@@ -222,17 +247,17 @@ class BaseVoter(ABC):
                 if not new_page.is_closed():
                     await new_page.close()
 
-            # 9. Gérer la popup de confirmation sur survivalworld.fr
-            try:
-                fermer_btn = page.locator(
-                    "button:has-text('Fermer'), "
-                    "a:has-text('Fermer')"
-                ).first
-                await fermer_btn.wait_for(state="visible", timeout=int(3000 * self.timeout_factor))
-                await fermer_btn.click()
-                logger.debug("%s Popup de confirmation fermée", self.log_prefix)
-            except Exception:
-                logger.debug("%s Pas de popup de confirmation détectée", self.log_prefix)
+                # 9. Gérer la popup de confirmation sur survivalworld.fr
+                try:
+                    fermer_btn = page.locator(
+                        "button:has-text('Fermer'), "
+                        "a:has-text('Fermer')"
+                    ).first
+                    await fermer_btn.wait_for(state="visible", timeout=int(5000 * self.timeout_factor))
+                    await fermer_btn.click()
+                    logger.debug("%s Popup de confirmation fermée", self.log_prefix)
+                except Exception:
+                    logger.debug("%s Pas de popup de confirmation détectée", self.log_prefix)
 
             if success:
                 self.record_success()
