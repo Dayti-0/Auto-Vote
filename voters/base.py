@@ -36,6 +36,63 @@ class BaseVoter(ABC):
     # Sous-classes peuvent mettre quick_close = True pour fermer la page externe immédiatement
     quick_close = False
 
+    async def _handle_cookie_consent(self, page) -> bool:
+        """Gère la popup de consentement cookies (CMP) si elle apparaît.
+
+        Essaie plusieurs sélecteurs courants pour les CMP (Quantcast, Didomi, etc.)
+        ainsi que les boutons directs sur la page et dans les iframes.
+        Retourne True si une popup a été trouvée et acceptée.
+        """
+        # Sélecteurs pour le bouton "Autoriser" / "Accepter" sur la page principale
+        main_page_selectors = [
+            "button:has-text('Autoriser')",
+            "a:has-text('Autoriser')",
+            "button:has-text('Accepter')",
+            "button:has-text('Tout accepter')",
+            "button:has-text('Accept all')",
+            "button:has-text('Consent')",
+            # CMP Didomi
+            "#didomi-notice-agree-button",
+            # CMP Quantcast / autres
+            "button.css-47sehv",  # Quantcast "Autoriser" button
+            "[aria-label='Autoriser']",
+            "[aria-label='Accepter']",
+        ]
+
+        # 1. Essayer les boutons sur la page principale
+        for selector in main_page_selectors:
+            try:
+                btn = page.locator(selector).first
+                if await btn.is_visible():
+                    await human_delay(0.2, 0.5)
+                    await btn.click()
+                    logger.debug("%s Popup cookies acceptée via: %s", self.log_prefix, selector)
+                    await human_delay(0.3, 0.5)
+                    return True
+            except Exception:
+                continue
+
+        # 2. Essayer dans les iframes (les CMP utilisent souvent un iframe)
+        for frame in page.frames:
+            if frame == page.main_frame:
+                continue
+            for selector in main_page_selectors:
+                try:
+                    btn = frame.locator(selector).first
+                    if await btn.is_visible():
+                        await human_delay(0.2, 0.5)
+                        await btn.click()
+                        logger.debug(
+                            "%s Popup cookies acceptée dans iframe via: %s",
+                            self.log_prefix, selector,
+                        )
+                        await human_delay(0.3, 0.5)
+                        return True
+                except Exception:
+                    continue
+
+        return False
+
     async def vote(self, page) -> bool:
         """Effectue le vote en passant par survivalworld.fr/vote."""
         try:
@@ -45,16 +102,13 @@ class BaseVoter(ABC):
             await human_delay(0.3, 0.8)
 
             # 1b. Gérer la popup de cookies si elle apparaît
+            # Attendre un peu que le CMP se charge (ils sont souvent asynchrones)
             try:
-                cookie_btn = page.locator(
-                    "button:has-text('Autoriser'), "
-                    "a:has-text('Autoriser')"
-                ).first
-                await cookie_btn.wait_for(state="visible", timeout=int(2000 * self.timeout_factor))
-                await cookie_btn.click()
-                logger.debug("%s Popup de cookies acceptée", self.log_prefix)
-                await human_delay(0.3, 0.5)
+                await page.wait_for_timeout(int(1500 * self.timeout_factor))
             except Exception:
+                pass
+            cookie_handled = await self._handle_cookie_consent(page)
+            if not cookie_handled:
                 logger.debug("%s Pas de popup de cookies détectée", self.log_prefix)
 
             # 2. Entrer le pseudo si le champ est visible (pas connecté)
@@ -75,6 +129,9 @@ class BaseVoter(ABC):
                     await continuer_btn.click()
                     logger.debug("%s Pseudo '%s' saisi et Continuer cliqué", self.log_prefix, self.pseudo)
                     await human_delay(0.5, 1.0)
+
+                    # 3b. La popup cookies peut apparaître après le clic sur Continuer
+                    await self._handle_cookie_consent(page)
                 else:
                     logger.debug("%s Champ pseudo non visible, session active", self.log_prefix)
             except Exception:
