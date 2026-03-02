@@ -57,6 +57,10 @@ class VoteScheduler:
         }
         # Comptes dont l'IP proxy a déjà été vérifiée (évite de vérifier 3x)
         self._ip_verified: set[str] = set()
+        # IPs proxy ayant échoué par pseudo (évite de les re-sélectionner)
+        self._failed_proxy_ips: dict[str, set[str]] = {
+            ag.pseudo: set() for ag in account_groups
+        }
 
     async def start(self):
         """Lance les boucles de vote en parallèle pour chaque voter de chaque compte."""
@@ -143,6 +147,15 @@ class VoteScheduler:
                     # Si auto-proxy et erreur de connexion proxy : rotation + retry (jusqu'à MAX_PROXY_RETRIES)
                     if (account.is_auto_proxy and voter.last_error
                             and _is_proxy_error(voter.last_error)):
+                        # Marquer l'IP du proxy actuel comme échouée
+                        if account.proxy:
+                            try:
+                                from urllib.parse import urlparse
+                                parsed = urlparse(account.proxy)
+                                if parsed.hostname:
+                                    self._failed_proxy_ips[account.pseudo].add(parsed.hostname)
+                            except Exception:
+                                pass
                         for retry_num in range(1, MAX_PROXY_RETRIES + 1):
                             logger.info(
                                 "[%s][%s] Erreur proxy détectée, rotation et retry %d/%d...",
@@ -249,10 +262,37 @@ class VoteScheduler:
 
             local_ip = await get_local_ip()
 
-            # Collecter les IPs des autres comptes pour éviter les doublons
+            # Collecter les IPs à exclure :
+            # - IP locale
+            # - IP du proxy actuel (sinon on retombe sur le même)
+            # - IPs des autres comptes
+            # - IPs des proxies qui ont déjà échoué
             exclude_ips = []
             if local_ip:
                 exclude_ips.append(local_ip)
+            # Exclure le proxy actuel du compte (éviter re-sélection)
+            current_proxy_ip = account.proxy
+            if current_proxy_ip:
+                # Extraire l'IP du proxy actuel (format http://ip:port)
+                try:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(current_proxy_ip)
+                    if parsed.hostname:
+                        exclude_ips.append(parsed.hostname)
+                except Exception:
+                    pass
+            # Exclure les IPs des proxies des autres comptes
+            for ag in self.account_groups:
+                if ag.pseudo != account.pseudo and ag.proxy:
+                    try:
+                        from urllib.parse import urlparse
+                        parsed = urlparse(ag.proxy)
+                        if parsed.hostname:
+                            exclude_ips.append(parsed.hostname)
+                    except Exception:
+                        pass
+            # Exclure les IPs qui ont déjà échoué pour ce compte
+            exclude_ips.extend(self._failed_proxy_ips.get(account.pseudo, set()))
 
             working = await find_working_proxies(
                 count=1,

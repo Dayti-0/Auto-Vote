@@ -2,6 +2,7 @@ import asyncio
 import signal
 import sys
 import os
+import webbrowser
 
 import yaml
 
@@ -188,6 +189,13 @@ async def main():
 
     # Bannière (après résolution des proxies pour afficher les IPs réelles)
     print_banner(accounts, headless, sites_config, local_ip=local_ip)
+
+    # Ouvrir la page de vote dans le navigateur par défaut
+    try:
+        webbrowser.open("https://survivalworld.fr/vote")
+        logger.info("Page survivalworld.fr/vote ouverte dans le navigateur")
+    except Exception as e:
+        logger.debug("Impossible d'ouvrir le navigateur: %s", e)
 
     # Construire les groupes de voters par compte
     account_groups = []
