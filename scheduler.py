@@ -35,11 +35,12 @@ class AccountVoters:
     """Regroupe les voters d'un même compte avec leur proxy."""
 
     def __init__(self, pseudo: str, proxy: str | None, voters: list[BaseVoter],
-                 is_auto_proxy: bool = False):
+                 is_auto_proxy: bool = False, proxy_latency_ms: float = 0):
         self.pseudo = pseudo
         self.proxy = proxy
         self.voters = voters
         self.is_auto_proxy = is_auto_proxy
+        self.proxy_latency_ms = proxy_latency_ms
 
 
 class VoteScheduler:
@@ -124,7 +125,10 @@ class VoteScheduler:
                     await self.browser.restart()
                     # Recréer tous les contextes après un restart du navigateur
                     for ag in self.account_groups:
-                        await self.browser.create_context(ag.pseudo, ag.proxy)
+                        await self.browser.create_context(
+                            ag.pseudo, ag.proxy,
+                            latency_ms=ag.proxy_latency_ms,
+                        )
 
                 page = await self.browser.new_page(account.pseudo)
                 success = await voter.vote(page)
@@ -172,7 +176,10 @@ class VoteScheduler:
             except Exception as e:
                 logger.error("[%s][%s] Erreur inattendue: %s", account.pseudo, voter.name, e)
                 try:
-                    await self.browser.restart_context(account.pseudo, account.proxy)
+                    await self.browser.restart_context(
+                        account.pseudo, account.proxy,
+                        latency_ms=account.proxy_latency_ms,
+                    )
                 except Exception as restart_err:
                     logger.error(
                         "[%s] Impossible de recréer le contexte: %s",
@@ -237,6 +244,7 @@ class VoteScheduler:
     async def _rotate_proxy(self, account: AccountVoters):
         """Récupère un nouveau proxy frais et recrée le contexte navigateur."""
         try:
+            from browser import compute_proxy_timeouts
             from proxy_manager import find_working_proxies, get_local_ip
 
             local_ip = await get_local_ip()
@@ -257,11 +265,18 @@ class VoteScheduler:
                 new_ip = working[0].get("ip", "?")
                 old_proxy = account.proxy
                 account.proxy = new_proxy
-                await self.browser.restart_context(account.pseudo, new_proxy)
+                account.proxy_latency_ms = latency
+                await self.browser.restart_context(
+                    account.pseudo, new_proxy, latency_ms=latency,
+                )
+                # Recalculer le timeout_factor des voters pour ce compte
+                _, new_factor = compute_proxy_timeouts(latency)
+                for v in account.voters:
+                    v.timeout_factor = new_factor
                 if new_proxy != old_proxy:
                     logger.info(
-                        "[%s] Nouveau proxy: %s (IP: %s, latence: %.0fms)",
-                        account.pseudo, new_proxy, new_ip, latency,
+                        "[%s] Nouveau proxy: %s (IP: %s, latence: %.0fms, timeout_factor: %.1f)",
+                        account.pseudo, new_proxy, new_ip, latency, new_factor,
                     )
                 else:
                     logger.debug("[%s] Proxy inchangé: %s", account.pseudo, new_proxy)
