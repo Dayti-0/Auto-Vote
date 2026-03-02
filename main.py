@@ -5,7 +5,7 @@ import os
 
 import yaml
 
-from browser import BrowserManager
+from browser import BrowserManager, compute_proxy_timeouts
 from logger_setup import setup_logger
 from proxy_manager import assign_auto_proxies
 from scheduler import VoteScheduler, AccountVoters
@@ -195,14 +195,21 @@ async def main():
         pseudo = acc["pseudo"]
         proxy = acc.get("proxy")
         is_auto = bool(acc.get("_proxy_auto"))
+        latency = acc.get("_proxy_latency", 0) or 0
         voters = build_voters(pseudo, sites_config, proxy=proxy)
-        # Timeouts plus longs pour les comptes via proxy (latence réseau)
+        # Timeouts adaptatifs basés sur la latence mesurée du proxy
         if proxy:
+            _, factor = compute_proxy_timeouts(latency)
             for v in voters:
-                v.timeout_factor = 2.0
+                v.timeout_factor = factor
+            logger.info(
+                "[%s] timeout_factor=%.1f (latence proxy: %.0fms)",
+                pseudo, factor, latency,
+            )
         if voters:
             account_groups.append(AccountVoters(
-                pseudo=pseudo, proxy=proxy, voters=voters, is_auto_proxy=is_auto,
+                pseudo=pseudo, proxy=proxy, voters=voters,
+                is_auto_proxy=is_auto, proxy_latency_ms=latency,
             ))
 
     if not account_groups:
@@ -221,7 +228,9 @@ async def main():
 
     # Créer un contexte isolé par compte (avec proxy si configuré)
     for ag in account_groups:
-        await browser.create_context(ag.pseudo, ag.proxy)
+        await browser.create_context(
+            ag.pseudo, ag.proxy, latency_ms=ag.proxy_latency_ms,
+        )
 
     # Scheduler
     scheduler = VoteScheduler(browser, account_groups)

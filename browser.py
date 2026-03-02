@@ -30,6 +30,28 @@ def _find_chromium_executable() -> str | None:
     return None
 
 
+def compute_proxy_timeouts(latency_ms: float) -> tuple[int, float]:
+    """Calcule les timeouts adaptatifs basés sur la latence mesurée du proxy.
+
+    La latence mesurée correspond à un aller-retour complet (connexion + fetch).
+    Une page réelle nécessite plusieurs aller-retours (HTML, CSS, JS, etc.)
+    donc on multiplie par un facteur pour couvrir le chargement complet.
+
+    Returns:
+        (navigation_timeout_ms, timeout_factor)
+    """
+    if latency_ms <= 0:
+        # Pas de mesure disponible : valeurs par défaut pour proxy
+        return 30_000, 2.0
+    # Navigation timeout : latence × 6 (couvre multi-requêtes + parsing)
+    # Min 30s, max 120s
+    nav_timeout = min(120_000, max(30_000, int(latency_ms * 6)))
+    # Facteur multiplicateur pour les attentes d'éléments (waits internes)
+    # Min 2.0, max 5.0
+    factor = min(5.0, max(2.0, latency_ms / 3000))
+    return nav_timeout, factor
+
+
 class BrowserManager:
     """Gère une instance unique du navigateur Playwright avec plusieurs contextes (un par compte)."""
 
@@ -40,6 +62,7 @@ class BrowserManager:
         self._browser: Browser | None = None
         self._contexts: dict[str, BrowserContext] = {}  # pseudo -> context
         self._proxy_pseudos: set[str] = set()  # pseudos utilisant un proxy
+        self._proxy_latencies: dict[str, float] = {}  # pseudo -> latency_ms
 
     async def start(self):
         """Lance le navigateur Chromium."""
@@ -59,8 +82,14 @@ class BrowserManager:
         self._browser = await self._playwright.chromium.launch(**launch_kwargs)
         logger.debug("Navigateur lancé avec succès")
 
-    async def create_context(self, pseudo: str, proxy: str | None = None) -> BrowserContext:
-        """Crée un contexte navigateur isolé pour un compte, avec proxy optionnel."""
+    async def create_context(self, pseudo: str, proxy: str | None = None,
+                             latency_ms: float = 0) -> BrowserContext:
+        """Crée un contexte navigateur isolé pour un compte, avec proxy optionnel.
+
+        Args:
+            latency_ms: Latence mesurée du proxy en ms. Utilisée pour calculer
+                        des timeouts adaptatifs (plus le proxy est lent, plus on attend).
+        """
         if not self._browser:
             await self.start()
 
@@ -73,16 +102,25 @@ class BrowserManager:
         if proxy:
             context_kwargs["proxy"] = _parse_proxy(proxy)
             self._proxy_pseudos.add(pseudo)
-            logger.info("[%s] Contexte créé avec proxy: %s", pseudo, _mask_proxy(proxy))
+            if latency_ms > 0:
+                self._proxy_latencies[pseudo] = latency_ms
+            nav_timeout, _ = compute_proxy_timeouts(
+                self._proxy_latencies.get(pseudo, 0)
+            )
+            logger.info(
+                "[%s] Contexte créé avec proxy: %s (timeout adapté: %ds pour ~%.0fms de latence)",
+                pseudo, _mask_proxy(proxy), nav_timeout // 1000,
+                self._proxy_latencies.get(pseudo, 0),
+            )
         else:
             self._proxy_pseudos.discard(pseudo)
+            self._proxy_latencies.pop(pseudo, None)
+            nav_timeout = 15000
             logger.info("[%s] Contexte créé sans proxy (IP locale)", pseudo)
 
         context = await self._browser.new_context(**context_kwargs)
-        # Timeouts plus longs pour les connexions via proxy (latence réseau)
-        timeout = 30000 if proxy else 15000
-        context.set_default_timeout(timeout)
-        context.set_default_navigation_timeout(timeout)
+        context.set_default_timeout(nav_timeout)
+        context.set_default_navigation_timeout(nav_timeout)
 
         self._contexts[pseudo] = context
         return context
@@ -102,7 +140,12 @@ class BrowserManager:
         page = None
         try:
             page = await self.new_page(pseudo)
-            ip_timeout = 30000 if pseudo in self._proxy_pseudos else 15000
+            if pseudo in self._proxy_pseudos:
+                ip_timeout, _ = compute_proxy_timeouts(
+                    self._proxy_latencies.get(pseudo, 0)
+                )
+            else:
+                ip_timeout = 15000
             await page.goto(
                 "https://api.ipify.org",
                 wait_until="domcontentloaded",
@@ -145,7 +188,8 @@ class BrowserManager:
         await self.start()
         # Note : les contextes doivent être recréés par l'appelant
 
-    async def restart_context(self, pseudo: str, proxy: str | None = None):
+    async def restart_context(self, pseudo: str, proxy: str | None = None,
+                              latency_ms: float = 0):
         """Recrée le contexte d'un compte après un crash."""
         old_ctx = self._contexts.pop(pseudo, None)
         if old_ctx:
@@ -153,7 +197,7 @@ class BrowserManager:
                 await old_ctx.close()
             except Exception:
                 pass
-        await self.create_context(pseudo, proxy)
+        await self.create_context(pseudo, proxy, latency_ms=latency_ms)
 
     @property
     def is_running(self) -> bool:
